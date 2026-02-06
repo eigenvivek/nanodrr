@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "jaxtyping>=0.3.7",
     "matplotlib>=3.10.8",
     "torch>=2.10.0",
     "torchio>=0.21.2",
@@ -24,4 +25,10 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "diffdrr>=0.6.0",
+]
+
+[tool.ruff]
+line-length = 120
+lint.ignore = [
+    "F722",  # Forward annotation false positive from jaxtyping
 ]
