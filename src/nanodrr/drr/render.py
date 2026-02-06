@@ -24,17 +24,15 @@ def render(
     uv = torch.stack([uu, vv, torch.ones_like(uu)], dim=-1)
     uv = uv.reshape(-1, 3)
 
+    # Get the length of a step in millimeters
     tgt = sdd * torch.einsum("...ij,nj->...ni", k_inv, uv)
     src = torch.zeros_like(tgt)
-
-    # Move the ray to world coordinates and get the ray length
-    src = rt_inv(src)
-    tgt = rt_inv(tgt)
     step_size = (tgt - src).norm(dim=-1) / float(n_samples - 1)
 
-    # Move the ray to voxel coordinates for ray marching
-    src = subject.world_to_voxel(src)
-    tgt = subject.world_to_voxel(tgt)
+    # Move the ray from camera->world->voxel coordinates
+    xform = subject.world_to_voxel @ rt_inv
+    src = xform(src)
+    tgt = xform(tgt)
 
     # Sample the volume
     t = torch.linspace(0, 1, n_samples, device=device, dtype=dtype)
