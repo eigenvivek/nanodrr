@@ -31,4 +31,5 @@ dev = [
 line-length = 120
 lint.ignore = [
     "F722",  # Forward annotation false positive from jaxtyping
+    "F821",  # Forward annotation false positive from jaxtyping
 ]

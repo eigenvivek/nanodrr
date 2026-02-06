@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+from jaxtyping import Float
 
 from ..data import Subject
 from ..geometry import transform_point
@@ -7,48 +8,46 @@ from ..geometry import transform_point
 
 def render(
     subject: Subject,
-    k_inv: torch.Tensor,
-    rt_inv: torch.Tensor,
-    sdd: torch.Tensor,
+    k_inv: Float[torch.Tensor, "B 3 3"],
+    rt_inv: Float[torch.Tensor, "B 4 4"],
+    sdd: Float[torch.Tensor, "B"],
     height: int,
     width: int,
     n_samples: int = 500,
-) -> torch.Tensor:
-    device, dtype = sdd.device, sdd.dtype
-    B = len(sdd)
+) -> Float[torch.Tensor, "B C H W"]:
+    device, dtype = rt_inv.device, rt_inv.dtype
+    B = rt_inv.shape[0]
+    N = height * width
 
-    # Get the start and end points of each ray in camera coordinates
-    u = torch.arange(width, device=device, dtype=dtype) + 0.5
-    v = torch.arange(height, device=device, dtype=dtype) + 0.5
-    vv, uu = torch.meshgrid(v, u, indexing="ij")
-    uv = torch.stack([uu, vv, torch.ones_like(uu)], dim=-1)
-    uv = uv.reshape(-1, 3)
+    # Get the ray endpoints in camera coordinates
+    v, u = torch.meshgrid(
+        torch.arange(height, device=device, dtype=dtype) + 0.5,
+        torch.arange(width, device=device, dtype=dtype) + 0.5,
+        indexing="ij",
+    )
+    uv1 = torch.stack([u, v, torch.ones_like(u)], dim=-1).reshape(N, 3)
+    tgt = sdd[:, None, None] * torch.einsum("bij,nj->bni", k_inv, uv1)
 
-    tgt = sdd * torch.einsum("...ij,nj->...ni", k_inv, uv)
-    src = torch.zeros_like(tgt)
+    # Compute step size [mm] in camera space (source is at origin)
+    step_size = tgt.norm(dim=-1) / float(n_samples - 1)
 
-    # Get the length of a step in millimeters
-    step_size = (tgt - src).norm(dim=-1) / float(n_samples - 1)
-
-    # Move the ray from camera->world->voxel coordinates
+    # Change coordinates: camera → world → voxel
     xform = subject.world_to_voxel @ rt_inv
-    src = transform_point(xform, src)
+    src = transform_point(xform, torch.zeros(B, 1, 3, device=device, dtype=dtype))
     tgt = transform_point(xform, tgt)
 
-    # Sample the volume
+    # Linearly interpolate sample points along each ray
     t = torch.linspace(0, 1, n_samples, device=device, dtype=dtype)
     pts = src[..., None, :] + t[None, None, :, None] * (tgt - src)[..., None, :]
-    pts = pts.reshape(B, 1, height * width * n_samples, 1, 3)
-    pts = 2.0 * pts / subject.dims - 1.0
+    pts = (2.0 * pts / subject.dims - 1.0).unsqueeze(-2)
 
-    sampled = F.grid_sample(
+    # Sample the volume and integrate along each ray
+    img = F.grid_sample(
         subject.image.expand(B, -1, -1, -1, -1),
         pts,
         mode="bilinear",
         padding_mode="zeros",
         align_corners=True,
     )
-
-    # Integrate the samples to compute the final intensity
-    sampled = sampled.reshape(B, height * width, n_samples)
-    return step_size * sampled.sum(dim=-1)
+    img = step_size[:, None] * img.sum(dim=[-2, -1])
+    return img.reshape(B, -1, height, width)
