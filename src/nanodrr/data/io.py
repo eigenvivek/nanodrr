@@ -3,24 +3,22 @@ from pathlib import Path
 import torch
 from torchio import ScalarImage
 
-from ..geometry import Transform
-
 
 class Subject(torch.nn.Module):
     def __init__(
         self,
         imagedata: torch.Tensor,
         # labeldata: torch.Tensor,
-        world_to_voxel: Transform,
-        voxel_to_world: Transform,
+        world_to_voxel: torch.Tensor,
+        voxel_to_world: torch.Tensor,
         isocenter: torch.Tensor,
         dims: torch.Tensor,
     ):
         super().__init__()
         self.register_buffer("image", imagedata)
         # self.register_buffer("label", labeldata)
-        self.world_to_voxel = world_to_voxel
-        self.voxel_to_world = voxel_to_world
+        self.register_buffer("world_to_voxel", world_to_voxel)
+        self.register_buffer("voxel_to_world", voxel_to_world)
         self.register_buffer("isocenter", isocenter)
         self.register_buffer("dims", dims)
 
@@ -37,8 +35,8 @@ class Subject(torch.nn.Module):
         # Load the affine matrices
         voxel_to_world = torch.from_numpy(image.affine)
         world_to_voxel = torch.inverse(voxel_to_world)
-        voxel_to_world = Transform(voxel_to_world).to(dtype=torch.float32)
-        world_to_voxel = Transform(world_to_voxel).to(dtype=torch.float32)
+        voxel_to_world = voxel_to_world.to(dtype=torch.float32)
+        world_to_voxel = world_to_voxel.to(dtype=torch.float32)
 
         # Load the data
         data = cls.fixdim(image.data)

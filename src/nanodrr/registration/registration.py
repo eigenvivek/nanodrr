@@ -2,7 +2,7 @@ import torch
 
 from ..data import Subject
 from ..drr import render
-from ..geometry import Transform, so3_exp_map
+from ..geometry import transform_point, so3_exp_map
 
 
 class Registration(torch.nn.Module):
@@ -25,11 +25,11 @@ class Registration(torch.nn.Module):
         self.width = width
 
         # Rotation pivot: isocenter projected into camera frame
-        c = rt_inv.inverse()(subject.isocenter[None])
-        self.pivot = Transform(torch.eye(4, device=c.device, dtype=c.dtype)[None])
-        self.pivot_inv = Transform(torch.eye(4, device=c.device, dtype=c.dtype)[None])
-        self.pivot.matrix[:, :3, 3] = c
-        self.pivot_inv.matrix[:, :3, 3] = -c
+        c = transform_point(rt_inv.inverse(), subject.isocenter)
+        self.pivot = torch.eye(4, device=c.device, dtype=c.dtype)[None]
+        self.pivot_inv = torch.eye(4, device=c.device, dtype=c.dtype)[None]
+        self.pivot[:, :3, 3] = c
+        self.pivot_inv[:, :3, 3] = -c
 
         # Parameterization of the perturbation
         self._rot = torch.nn.Parameter(eps * torch.randn(1, 3, device=c.device))
@@ -47,4 +47,4 @@ class Registration(torch.nn.Module):
         T = torch.eye(4, device=self._rot.device)[None]
         T[:, :3, :3] = R
         T[:, :3, 3] = t
-        return self.pivot @ Transform(T) @ self.pivot_inv
+        return self.pivot @ T @ self.pivot_inv

@@ -2,13 +2,13 @@ import torch
 import torch.nn.functional as F
 
 from ..data import Subject
-from ..geometry import Transform
+from ..geometry import transform_point
 
 
 def render(
     subject: Subject,
     k_inv: torch.Tensor,
-    rt_inv: Transform,
+    rt_inv: torch.Tensor,
     sdd: torch.Tensor,
     height: int,
     width: int,
@@ -24,15 +24,16 @@ def render(
     uv = torch.stack([uu, vv, torch.ones_like(uu)], dim=-1)
     uv = uv.reshape(-1, 3)
 
-    # Get the length of a step in millimeters
     tgt = sdd * torch.einsum("...ij,nj->...ni", k_inv, uv)
     src = torch.zeros_like(tgt)
+
+    # Get the length of a step in millimeters
     step_size = (tgt - src).norm(dim=-1) / float(n_samples - 1)
 
     # Move the ray from camera->world->voxel coordinates
     xform = subject.world_to_voxel @ rt_inv
-    src = xform(src)
-    tgt = xform(tgt)
+    src = transform_point(xform, src)
+    tgt = transform_point(xform, tgt)
 
     # Sample the volume
     t = torch.linspace(0, 1, n_samples, device=device, dtype=dtype)
