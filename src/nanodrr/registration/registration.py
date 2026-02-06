@@ -25,7 +25,7 @@ class Registration(torch.nn.Module):
         self.width = width
 
         # Rotation pivot: isocenter projected into camera frame
-        c = transform_point(rt_inv.inverse(), subject.isocenter)
+        c = transform_point(rt_inv.inverse(), subject.isocenter[None])
         self.pivot = torch.eye(4, device=c.device, dtype=c.dtype)[None]
         self.pivot_inv = torch.eye(4, device=c.device, dtype=c.dtype)[None]
         self.pivot[:, :3, 3] = c
@@ -36,9 +36,14 @@ class Registration(torch.nn.Module):
         self._xyz = torch.nn.Parameter(eps * torch.randn(1, 3, device=c.device))
 
     def forward(self):
-        pose = self.rt_inv @ self.pose
-        img = render(self.subject, self.k_inv, pose, self.sdd, self.height, self.width)
-        return img.reshape(1, 1, self.height, self.width)
+        return render(
+            self.subject,
+            self.k_inv,
+            self.rt_inv @ self.pose,
+            self.sdd,
+            self.height,
+            self.width,
+        )
 
     @property
     def pose(self):
