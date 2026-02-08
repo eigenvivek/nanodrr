@@ -33,15 +33,14 @@ def render(
     # Compute step size [mm] in camera space (source is at origin)
     step_size = tgt.norm(dim=-1) / float(n_samples - 1)
 
-    # Change coordinates: camera → world → voxel
-    xform = subject.world_to_voxel @ rt_inv
+    # Change coordinates: camera → world → voxel → normalized grid
+    xform = subject.voxel_to_grid @ subject.world_to_voxel @ rt_inv
     src = transform_point(xform, torch.zeros(B, 1, 3, device=device, dtype=dtype))
     tgt = transform_point(xform, tgt)
 
     # Linearly interpolate sample points along each ray
     t = torch.linspace(0, 1, n_samples, device=device, dtype=dtype)
-    pts = src[..., None, :] + t[None, None, :, None] * (tgt - src)[..., None, :]
-    pts = (2.0 * pts / subject.dims - 1.0).unsqueeze(-2)
+    pts = src[:, None, :, None] + t[None, :, None, None, None] * (tgt - src)[:, None, :, None]
 
     # Sample the volume
     img = F.grid_sample(
@@ -49,7 +48,7 @@ def render(
         pts,
         mode="bilinear",
         align_corners=align_corners,
-    ).squeeze(1).squeeze(-1)  # [B, n_samples, N]
+    )[:, 0, ..., 0]  # [B, n_samples, N]
     img = img * step_size[:, None, :]
 
     if C == 1:  # Compute whole-volume ray marching
@@ -61,7 +60,7 @@ def render(
         pts,
         mode="nearest",
         align_corners=align_corners,
-    ).squeeze(1).squeeze(-1).long()  # [B, n_samples, N]
+    )[:, 0, ..., 0].long()  # [B, n_samples, N]
 
     # Compute the structure-specific ray marching
     out = torch.zeros(B, C, N, device=img.device, dtype=img.dtype)
