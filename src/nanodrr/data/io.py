@@ -10,15 +10,14 @@ class Subject(torch.nn.Module):
         imagedata: torch.Tensor,
         labeldata: torch.Tensor,
         world_to_voxel: torch.Tensor,
-        voxel_to_world: torch.Tensor,
+        voxel_to_grid: torch.Tensor,
         isocenter: torch.Tensor,
-        dims: torch.Tensor,
     ):
         super().__init__()
         self.register_buffer("image", imagedata)
         self.register_buffer("label", labeldata)
         self.register_buffer("world_to_voxel", world_to_voxel)
-        self.register_buffer("voxel_to_world", voxel_to_world)
+        self.register_buffer("voxel_to_grid", voxel_to_grid)
         self.register_buffer("isocenter", isocenter)
 
         self.n_classes = int(self.label.max().item()) + 1
@@ -35,27 +34,30 @@ class Subject(torch.nn.Module):
         label = LabelMap(labelpath) if labelpath is not None else None
 
         # Load the affine matrices
-        voxel_to_world = torch.from_numpy(image.affine)
-        world_to_voxel = torch.inverse(voxel_to_world)
-        voxel_to_world = voxel_to_world.to(dtype=torch.float32)
-        world_to_voxel = world_to_voxel.to(dtype=torch.float32)
+        world_to_voxel = torch.linalg.inv(torch.from_numpy(image.affine)).to(dtype=torch.float32)
 
         # Load the image data
         imagedata = cls.fixdim(image.data)
         if convert_to_mu:
             imagedata = cls.hu_to_mu(imagedata, mu_water)
-        
+
         # Load the label data
         labeldata = cls.fixdim(label.data.to(imagedata)) if label is not None else torch.zeros_like(imagedata)
 
         # Get the isocenter
         isocenter = torch.tensor(image.get_center()).to(dtype=torch.float32)
 
-        # Get the dims
-        *_, D, H, W = data.shape
+        # Precompute voxel-to-grid transform for grid_sample
+        *_, D, H, W = imagedata.shape
         dims = torch.tensor([W - 1, H - 1, D - 1], dtype=torch.float32)
+        scale = 2.0 / dims
+        voxel_to_grid = torch.eye(4, dtype=torch.float32)
+        voxel_to_grid[0, 0] = scale[0]
+        voxel_to_grid[1, 1] = scale[1]
+        voxel_to_grid[2, 2] = scale[2]
+        voxel_to_grid[:3, 3] = -1.0
 
-        return cls(imagedata, labeldata, world_to_voxel, voxel_to_world, isocenter, dims)
+        return cls(imagedata, labeldata, world_to_voxel, voxel_to_grid, isocenter)
 
     @staticmethod
     def hu_to_mu(data: torch.Tensor, mu_water: float) -> torch.Tensor:
