@@ -1,14 +1,14 @@
 from pathlib import Path
 
 import torch
-from torchio import ScalarImage
+from torchio import ScalarImage, LabelMap
 
 
 class Subject(torch.nn.Module):
     def __init__(
         self,
         imagedata: torch.Tensor,
-        # labeldata: torch.Tensor,
+        labeldata: torch.Tensor,
         world_to_voxel: torch.Tensor,
         voxel_to_world: torch.Tensor,
         isocenter: torch.Tensor,
@@ -16,21 +16,23 @@ class Subject(torch.nn.Module):
     ):
         super().__init__()
         self.register_buffer("image", imagedata)
-        # self.register_buffer("label", labeldata)
+        self.register_buffer("label", labeldata)
         self.register_buffer("world_to_voxel", world_to_voxel)
         self.register_buffer("voxel_to_world", voxel_to_world)
         self.register_buffer("isocenter", isocenter)
-        self.register_buffer("dims", dims)
+
+        self.n_classes = int(self.label.max().item()) + 1
 
     @classmethod
     def from_filepath(
         cls,
         imagepath: str | Path,
-        # labelpath: str | Path = None,
+        labelpath: str | Path = None,
         convert_to_mu: bool = True,
         mu_water: float = 0.019,
     ):
         image = ScalarImage(imagepath)
+        label = LabelMap(labelpath) if labelpath is not None else None
 
         # Load the affine matrices
         voxel_to_world = torch.from_numpy(image.affine)
@@ -38,10 +40,13 @@ class Subject(torch.nn.Module):
         voxel_to_world = voxel_to_world.to(dtype=torch.float32)
         world_to_voxel = world_to_voxel.to(dtype=torch.float32)
 
-        # Load the data
-        data = cls.fixdim(image.data)
+        # Load the image data
+        imagedata = cls.fixdim(image.data)
         if convert_to_mu:
-            data = cls.hu_to_mu(data, mu_water)
+            imagedata = cls.hu_to_mu(imagedata, mu_water)
+        
+        # Load the label data
+        labeldata = cls.fixdim(label.data.to(imagedata)) if label is not None else torch.zeros_like(imagedata)
 
         # Get the isocenter
         isocenter = torch.tensor(image.get_center()).to(dtype=torch.float32)
@@ -50,7 +55,7 @@ class Subject(torch.nn.Module):
         *_, D, H, W = data.shape
         dims = torch.tensor([W - 1, H - 1, D - 1], dtype=torch.float32)
 
-        return cls(data, world_to_voxel, voxel_to_world, isocenter, dims)
+        return cls(imagedata, labeldata, world_to_voxel, voxel_to_world, isocenter, dims)
 
     @staticmethod
     def hu_to_mu(data: torch.Tensor, mu_water: float) -> torch.Tensor:

@@ -14,9 +14,11 @@ def render(
     height: int,
     width: int,
     n_samples: int = 500,
+    align_corners: bool = True,
 ) -> Float[torch.Tensor, "B C H W"]:
     device, dtype = rt_inv.device, rt_inv.dtype
     B = rt_inv.shape[0]
+    C = subject.n_classes
     N = height * width
 
     # Get the ray endpoints in camera coordinates
@@ -41,13 +43,27 @@ def render(
     pts = src[..., None, :] + t[None, None, :, None] * (tgt - src)[..., None, :]
     pts = (2.0 * pts / subject.dims - 1.0).unsqueeze(-2)
 
-    # Sample the volume and integrate along each ray
+    # Sample the volume
     img = F.grid_sample(
         subject.image.expand(B, -1, -1, -1, -1),
         pts,
         mode="bilinear",
-        padding_mode="zeros",
-        align_corners=True,
-    )
-    img = step_size[:, None] * img.sum(dim=[-2, -1])
-    return img.reshape(B, -1, height, width)
+        align_corners=align_corners,
+    ).squeeze(1).squeeze(-1)  # [B, n_samples, N]
+    img = img * step_size[:, None, :]
+
+    if C == 1:  # Compute whole-volume ray marching
+        return img.sum(dim=1, keepdim=True).reshape(B, C, height, width)
+
+    # Sample the mask
+    idx = F.grid_sample(
+        subject.label.expand(B, -1, -1, -1, -1),
+        pts,
+        mode="nearest",
+        align_corners=align_corners,
+    ).squeeze(1).squeeze(-1).long()  # [B, n_samples, N]
+
+    # Compute the structure-specific ray marching
+    out = torch.zeros(B, C, N, device=img.device, dtype=img.dtype)
+    out.scatter_add_(1, idx, img)
+    return out.reshape(B, C, height, width)
