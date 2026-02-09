@@ -9,8 +9,8 @@ A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenv
 - [x] Compatibility with `torch.compile`
 - [x] Compatibility with mixed precision
 - [ ] Compatibility with [`torchio` dataloaders](https://docs.torchio.org/data/dataset.html)
-- [ ] Extensive typehints with `jaxtyping`
-- [ ] Traditional python package structure with `uv`
+- [x] Extensive typehints with `jaxtyping`
+- [x] Traditional python package structure with `uv`
 
 ## Roadmap
 
