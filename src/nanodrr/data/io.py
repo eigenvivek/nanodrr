@@ -17,6 +17,7 @@ class Subject(torch.nn.Module):
         super().__init__()
         self.register_buffer("image", imagedata)
         self.register_buffer("label", labeldata)
+        self.register_buffer("world_to_grid", voxel_to_grid @ world_to_voxel)
         self.register_buffer("world_to_voxel", world_to_voxel)
         self.register_buffer("voxel_to_grid", voxel_to_grid)
         self.register_buffer("isocenter", isocenter)

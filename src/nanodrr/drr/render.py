@@ -40,7 +40,7 @@ def render(
     step_size = (tgt - src).norm(dim=-1) / float(n_samples - 1)
 
     # Change coordinates: camera → world → voxel → normalized grid
-    xform = subject.voxel_to_grid @ subject.world_to_voxel @ rt_inv
+    xform = subject.world_to_grid @ rt_inv
     src = transform_point(xform, src)
     tgt = transform_point(xform, tgt)
 
