@@ -15,27 +15,33 @@ def render(
     width: int,
     n_samples: int = 500,
     align_corners: bool = True,
+    src: Float[torch.Tensor, "B (H W) 3"] | None = None,
+    tgt: Float[torch.Tensor, "B (H W) 3"] | None = None,
 ) -> Float[torch.Tensor, "B C H W"]:
+    """Differentiable ray marching through a volume and optional labelmap.
+
+    Casts rays from an X-ray source through a 3D volume (`subject.image`) and
+    integrates sampled intensities along each ray to produce a synthetic
+    radiograph. When the subject contains a multi-class labelmap (`subject.label`),
+    the integration is performed per-structure, yielding one channel per class.
+    """
     device, dtype = rt_inv.device, rt_inv.dtype
     B = rt_inv.shape[0]
     C = subject.n_classes
     N = height * width
 
     # Get the ray endpoints in camera coordinates
-    v, u = torch.meshgrid(
-        torch.arange(height, device=device, dtype=dtype) + 0.5,
-        torch.arange(width, device=device, dtype=dtype) + 0.5,
-        indexing="ij",
-    )
-    uv1 = torch.stack([u, v, torch.ones_like(u)], dim=-1).reshape(N, 3)
-    tgt = sdd[:, None, None] * torch.einsum("bij,nj->bni", k_inv, uv1)
+    if src is None:
+        src = torch.zeros(B, 1, 3, device=device, dtype=dtype)
+    if tgt is None:
+        tgt = _make_tgt(k_inv, sdd, height, width, device, dtype)
 
-    # Compute step size [mm] in camera space (source is at origin)
-    step_size = tgt.norm(dim=-1) / float(n_samples - 1)
+    # Compute step size [mm] in camera space
+    step_size = (tgt - src).norm(dim=-1) / float(n_samples - 1)
 
     # Change coordinates: camera → world → voxel → normalized grid
     xform = subject.voxel_to_grid @ subject.world_to_voxel @ rt_inv
-    src = transform_point(xform, torch.zeros(B, 1, 3, device=device, dtype=dtype))
+    src = transform_point(xform, src)
     tgt = transform_point(xform, tgt)
 
     # Linearly interpolate sample points along each ray
@@ -66,3 +72,22 @@ def render(
     out = torch.zeros(B, C, N, device=img.device, dtype=img.dtype)
     out.scatter_add_(1, idx, img)
     return out.reshape(B, C, height, width)
+
+
+def _make_tgt(
+    k_inv: Float[torch.Tensor, "B 3 3"],
+    sdd: Float[torch.Tensor, "B"],
+    height: int,
+    width: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> Float[torch.Tensor, "B (H W) 3"]:
+    N = height * width
+    v, u = torch.meshgrid(
+        torch.arange(height, device=device, dtype=dtype) + 0.5,
+        torch.arange(width, device=device, dtype=dtype) + 0.5,
+        indexing="ij",
+    )
+    uv1 = torch.stack([u, v, torch.ones_like(u)], dim=-1).reshape(N, 3)
+    tgt = sdd[:, None, None] * torch.einsum("bij,nj->bni", k_inv, uv1)
+    return tgt
