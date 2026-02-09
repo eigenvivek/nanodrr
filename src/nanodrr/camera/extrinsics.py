@@ -1,40 +1,13 @@
 import torch
-
-
-def make_k_inv(
-    sdd: float,
-    delx: float,
-    dely: float,
-    x0: float,
-    y0: float,
-    height: int,
-    width: int,
-) -> torch.Tensor:
-    fx = sdd / delx
-    fy = sdd / dely
-    cx = x0 / delx + width / 2.0
-    cy = y0 / dely + height / 2.0
-
-    fx_inv = 1.0 / fx
-    fy_inv = 1.0 / fy
-
-    return torch.tensor(
-        [
-            [
-                [fx_inv, 0.0, -cx * fx_inv],
-                [0.0, fy_inv, -cy * fy_inv],
-                [0.0, 0.0, 1.0],
-            ]
-        ]
-    )
+from jaxtyping import Float
 
 
 def make_rt_inv(
-    rotation: torch.Tensor,
-    translation: torch.Tensor,
+    rotation: Float[torch.Tensor, "B 3"],
+    translation: Float[torch.Tensor, "B 3"],
     orientation: str | None = "AP",
-    isocenter: torch.Tensor | None = None,
-) -> torch.Tensor:
+    isocenter: Float[torch.Tensor, "3"] | None = None,
+) -> Float[torch.Tensor, "B 4 4"]:
     """Create 4x4 camera-to-world (extrinsic inverse) transformation matrix.
 
     Composes the pose and reorientation to match DiffDRR's behavior:
@@ -91,7 +64,7 @@ def make_rt_inv(
     return out
 
 
-def euler_to_matrix(rotation: torch.Tensor) -> torch.Tensor:
+def euler_to_matrix(rotation: Float[torch.Tensor, "B 3"]) -> Float[torch.Tensor, "B 3 3"]:
     """Convert ZXY Euler angles (degrees) to rotation matrices.
 
     Args:
@@ -120,7 +93,11 @@ def euler_to_matrix(rotation: torch.Tensor) -> torch.Tensor:
     return R
 
 
-def get_orientation_matrix(orientation: str | None, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+def get_orientation_matrix(
+    orientation: str | None,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> Float[torch.Tensor, "4 4"]:
     """Get the combined orientation + Rz(180°) matrix.
 
     Args:
