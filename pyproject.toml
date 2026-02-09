@@ -7,6 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "jaxtyping>=0.3.7",
     "matplotlib>=3.10.8",
+    "roma>=1.5.5",
     "torch>=2.10.0",
     "torchio>=0.21.2",
 ]
