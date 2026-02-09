@@ -10,6 +10,7 @@ class Parameterization(str, Enum):
     QUATERNION = "quaternion"
     QUATERNION_ADJUGATE = "quaternion_adjugate"
     ROTATION_9D = "rotation_9d"
+    SO3_LOG = "so3_log"
     SE3_LOG = "se3_log"
 
     @property
@@ -19,6 +20,7 @@ class Parameterization(str, Enum):
             Parameterization.QUATERNION: 4,
             Parameterization.QUATERNION_ADJUGATE: 10,
             Parameterization.ROTATION_9D: 9,
+            Parameterization.SO3_LOG: 3,
             Parameterization.SE3_LOG: 3,
         }[self]
 
@@ -86,7 +88,7 @@ def rotation_to_matrix(
 
     if parameterization == Parameterization.EULER:
         if convention is None:
-            raise ValueError("convention must be specified for Euler angles (e.g. 'XYZ', 'ZYX')")
+            raise ValueError("convention must be specified for Euler angles (e.g., 'XYZ', 'ZYX')")
         if degrees:
             rotation = rotation * (torch.pi / 180.0)
         return roma.euler_to_rotmat(convention, rotation)
@@ -100,6 +102,9 @@ def rotation_to_matrix(
 
     if parameterization == Parameterization.ROTATION_9D:
         return roma.special_procrustes(rotation.reshape(-1, 3, 3))
+
+    if parameterization == Parameterization.SO3_LOG:
+        return roma.rotvec_to_rotmat(rotation)
 
     if parameterization == Parameterization.SE3_LOG:
         return roma.rotvec_to_rotmat(rotation)
