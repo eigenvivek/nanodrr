@@ -1,8 +1,10 @@
 import torch
+from jaxtyping import Float
 
+from .logexp import so3_exp_map
 from ..data import Subject
 from ..drr import render
-from ..geometry import transform_point, so3_exp_map
+from ..geometry import transform_point
 
 
 class Registration(torch.nn.Module):

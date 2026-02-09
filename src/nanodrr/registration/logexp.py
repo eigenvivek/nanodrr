@@ -1,7 +1,8 @@
 import torch
+from jaxtyping import Float
 
 
-def skew_symmetric(v: torch.Tensor) -> torch.Tensor:
+def skew_symmetric(v: Float[torch.Tensor, "... 3"]) -> Float[torch.Tensor, "... 3 3"]:
     batch_shape = v.shape[:-1]
     K = torch.zeros(*batch_shape, 3, 3, device=v.device, dtype=v.dtype)
     K[..., 0, 1] = -v[..., 2]
@@ -13,7 +14,7 @@ def skew_symmetric(v: torch.Tensor) -> torch.Tensor:
     return K
 
 
-def so3_exp_map(omega: torch.Tensor) -> torch.Tensor:
+def so3_exp_map(omega: Float[torch.Tensor, "... 3"]) -> Float[torch.Tensor, "... 3 3"]:
     theta_sq = torch.sum(omega * omega, dim=-1, keepdim=True)
     theta = torch.sqrt(theta_sq)
 
