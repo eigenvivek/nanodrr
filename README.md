@@ -15,7 +15,7 @@ A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenv
 ## Roadmap
 
 - [x] Implement a fully optimized renderer
-- [ ] Port strictly necessary modules from `DiffDRR` (e.g., SE(3) utilities, loss functions, and 2D plotting)
+- [x] Port strictly necessary modules from `DiffDRR` (e.g., SE(3) utilities, loss functions, and 2D plotting)
 - [ ] Integrate with [`xvr`](https://github.com/eigenvivek/xvr) to speed up network training and registration
 - [ ] Integrate with [`polypose`](https://github.com/eigenvivek/polypose) to speed up registration
 - [ ] Migrate 3D plotting functions to a new, standalone library
