@@ -2,6 +2,7 @@ import torch
 from jaxtyping import Float
 
 from .render import render, _make_tgt
+from ..camera import make_k_inv
 from ..data import Subject
 
 
@@ -50,3 +51,20 @@ class DRR(torch.nn.Module):
             None,
             self.tgt,
         )
+
+    @classmethod
+    def from_carm_intrinsics(
+        cls,
+        sdd: float,
+        delx: float,
+        dely: float,
+        x0: float,
+        y0: float,
+        height: int,
+        width: int,
+        dtype: torch.dtype | None = None,
+        device: torch.device | None = None,
+    ):
+        k_inv = make_k_inv(sdd, delx, dely, x0, y0, height, width).to(dtype=dtype, device=device)
+        sdd = torch.tensor([sdd], dtype=dtype, device=device)
+        return cls(k_inv, sdd, height, width)
