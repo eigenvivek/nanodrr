@@ -1,4 +1,4 @@
 from .transform import transform_point
-from .se3 import Param, convert
+from .se3 import Parameterization, convert
 
-__all__ = ["transform_point", "Param", "convert"]
+__all__ = ["transform_point", "Parameterization", "convert"]

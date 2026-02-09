@@ -5,18 +5,28 @@ import roma
 from jaxtyping import Float
 
 
-class Param(str, Enum):
+class Parameterization(str, Enum):
     EULER = "euler"
     QUATERNION = "quaternion"
     QUATERNION_ADJUGATE = "quaternion_adjugate"
     ROTATION_9D = "rotation_9d"
     SE3_LOG = "se3_log"
 
+    @property
+    def dim(self) -> int:
+        return {
+            Parameterization.EULER: 3,
+            Parameterization.QUATERNION: 4,
+            Parameterization.QUATERNION_ADJUGATE: 10,
+            Parameterization.ROTATION_9D: 9,
+            Parameterization.SE3_LOG: 3,
+        }[self]
+
 
 def convert(
     rotation: Float[torch.Tensor, "B D"],
     translation: Float[torch.Tensor, "B 3"],
-    parameterization: Param,
+    parameterization: Parameterization,
     convention: str = None,
     degrees: bool = True,
     isocenter: Float[torch.Tensor, "3"] | None = None,
@@ -43,9 +53,9 @@ def convert(
     Returns:
         Batched SE(3) matrices of shape (B, 4, 4).
     """
-    parameterization = Param(parameterization)
+    parameterization = Parameterization(parameterization)
 
-    if parameterization == Param.SE3_LOG:
+    if parameterization == Parameterization.SE3_LOG:
         return _se3_exp_map(rotation, translation)
 
     R = rotation_to_matrix(rotation, parameterization, convention, degrees)
@@ -57,7 +67,7 @@ def convert(
 
 def rotation_to_matrix(
     rotation: Float[torch.Tensor, "B D"],
-    parameterization: Param,
+    parameterization: Parameterization,
     convention: str = None,
     degrees: bool = False,
 ) -> Float[torch.Tensor, "B 3 3"]:
@@ -72,26 +82,26 @@ def rotation_to_matrix(
     Returns:
         Batched rotation matrices of shape (B, 3, 3).
     """
-    parameterization = Param(parameterization)
+    parameterization = Parameterization(parameterization)
 
-    if parameterization == Param.EULER:
+    if parameterization == Parameterization.EULER:
         if convention is None:
             raise ValueError("convention must be specified for Euler angles (e.g. 'XYZ', 'ZYX')")
         if degrees:
             rotation = rotation * (torch.pi / 180.0)
         return roma.euler_to_rotmat(convention, rotation)
 
-    if parameterization == Param.QUATERNION:
+    if parameterization == Parameterization.QUATERNION:
         return roma.unitquat_to_rotmat(rotation)
 
-    if parameterization == Param.QUATERNION_ADJUGATE:
+    if parameterization == Parameterization.QUATERNION_ADJUGATE:
         q = quaternion_adjugate_to_quaternion(rotation)
         return roma.unitquat_to_rotmat(q)
 
-    if parameterization == Param.ROTATION_9D:
+    if parameterization == Parameterization.ROTATION_9D:
         return roma.special_procrustes(rotation.reshape(-1, 3, 3))
 
-    if parameterization == Param.SE3_LOG:
+    if parameterization == Parameterization.SE3_LOG:
         return roma.rotvec_to_rotmat(rotation)
 
     raise ValueError(f"Unknown parameterization: {parameterization}")
