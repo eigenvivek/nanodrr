@@ -40,7 +40,7 @@ class Subject(torch.nn.Module):
         imagedata = cls.fixdim(image.data)
         if convert_to_mu:
             imagedata = cls.hu_to_mu(imagedata, mu_water)
-        
+
         # Load the label data
         labeldata = cls.fixdim(label.data.to(imagedata)) if label is not None else torch.zeros_like(imagedata)
 

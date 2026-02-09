@@ -110,12 +110,8 @@ def euler_to_matrix(rotation: torch.Tensor) -> torch.Tensor:
     # ZXY Euler rotation matrix
     R = torch.stack(
         [
-            torch.stack(
-                [cy * cz - sx * sy * sz, -cx * sz, cz * sy + cy * sx * sz], dim=1
-            ),
-            torch.stack(
-                [cy * sz + cz * sx * sy, cx * cz, sy * sz - cy * cz * sx], dim=1
-            ),
+            torch.stack([cy * cz - sx * sy * sz, -cx * sz, cz * sy + cy * sx * sz], dim=1),
+            torch.stack([cy * sz + cz * sx * sy, cx * cz, sy * sz - cy * cz * sx], dim=1),
             torch.stack([-cx * sy, sx, cx * cy], dim=1),
         ],
         dim=1,
@@ -124,9 +120,7 @@ def euler_to_matrix(rotation: torch.Tensor) -> torch.Tensor:
     return R
 
 
-def get_orientation_matrix(
-    orientation: str | None, device: torch.device, dtype: torch.dtype
-) -> torch.Tensor:
+def get_orientation_matrix(orientation: str | None, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
     """Get the combined orientation + Rz(180°) matrix.
 
     Args:

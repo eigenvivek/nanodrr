@@ -22,12 +22,8 @@ def so3_exp_map(omega: torch.Tensor) -> torch.Tensor:
     sin_theta = torch.sin(theta)
     cos_theta = torch.cos(theta)
 
-    sin_theta_over_theta = torch.where(
-        small_angle, 1.0 - theta_sq / 6.0, sin_theta / theta
-    )
-    one_minus_cos_over_theta_sq = torch.where(
-        small_angle, 0.5 - theta_sq / 24.0, (1.0 - cos_theta) / theta_sq
-    )
+    sin_theta_over_theta = torch.where(small_angle, 1.0 - theta_sq / 6.0, sin_theta / theta)
+    one_minus_cos_over_theta_sq = torch.where(small_angle, 0.5 - theta_sq / 24.0, (1.0 - cos_theta) / theta_sq)
 
     K = skew_symmetric(omega)
     K_sq = torch.matmul(K, K)
