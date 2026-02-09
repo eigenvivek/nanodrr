@@ -30,12 +30,23 @@ class Subject(torch.nn.Module):
         labelpath: str | Path | None = None,
         convert_to_mu: bool = True,
         mu_water: float = 0.019,
-    ) -> Subject:
+    ):
         image = ScalarImage(imagepath)
         label = LabelMap(labelpath) if labelpath is not None else None
+        return cls.from_images(image, label, convert_to_mu, mu_water)
 
-        # Load the affine matrices
-        world_to_voxel = torch.linalg.inv(torch.from_numpy(image.affine)).to(dtype=torch.float32)
+    @classmethod
+    def from_images(
+        cls,
+        image: ScalarImage,
+        label: LabelMap | None = None,
+        convert_to_mu: bool = True,
+        mu_water: float = 0.019,
+    ):
+        # Load the affine matrix
+        voxel_to_world = torch.from_numpy(image.affine)
+        world_to_voxel = voxel_to_world.inverse().to(dtype=torch.float32)
+        voxel_to_world = voxel_to_world.to(dtype=torch.float32)
 
         # Load the image data
         imagedata = cls.fixdim(image.data)
