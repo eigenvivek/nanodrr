@@ -17,7 +17,7 @@ class NormalizedCrossCorrelation2d(torch.nn.Module):
         self,
         x1: Float[Tensor, "B 1 H W"],
         x2: Float[Tensor, "B 1 H W"],
-    ) -> Float[Tensor, " B"]:
+    ) -> Float[Tensor, "B"]:
         if self.patch_size is not None:
             x1 = _to_patches(x1, self.patch_size)
             x2 = _to_patches(x2, self.patch_size)
@@ -32,12 +32,9 @@ class NormalizedCrossCorrelation2d(torch.nn.Module):
         self,
         x: Float[Tensor, "B C H W"],
     ) -> Float[Tensor, "B C H W"]:
-        input_dtype = x.dtype
-        x = x.float()
         mu = x.mean(dim=(-1, -2), keepdim=True)
         var = x.var(dim=(-1, -2), keepdim=True, correction=0) + self.eps
-        x = (x - mu) / var.sqrt()
-        return x.to(input_dtype)
+        return (x - mu) / var.sqrt()
 
 
 class MultiscaleNormalizedCrossCorrelation2d(torch.nn.Module):
@@ -58,7 +55,7 @@ class MultiscaleNormalizedCrossCorrelation2d(torch.nn.Module):
         self,
         x1: Float[Tensor, "B 1 H W"],
         x2: Float[Tensor, "B 1 H W"],
-    ) -> Float[Tensor, " B"]:
+    ) -> Float[Tensor, "B"]:
         scores = []
         for weight, ncc in zip(self.patch_weights, self.nccs):
             scores.append(weight * ncc(x1, x2))
@@ -81,7 +78,7 @@ class GradientNormalizedCrossCorrelation2d(NormalizedCrossCorrelation2d):
         self,
         x1: Float[Tensor, "B 1 H W"],
         x2: Float[Tensor, "B 1 H W"],
-    ) -> Float[Tensor, " B"]:
+    ) -> Float[Tensor, "B"]:
         return super().forward(self.sobel(x1), self.sobel(x2))
 
 
@@ -96,7 +93,7 @@ def _to_patches(
 def _make_gaussian_kernel_1d(
     sigma: float,
     kernel_size: int,
-) -> Float[Tensor, " K"]:
+) -> Float[Tensor, "K"]:
     """Create a 1D Gaussian kernel."""
     x = torch.arange(kernel_size, dtype=torch.float32) - (kernel_size - 1) / 2.0
     kernel = torch.exp(-0.5 * (x / sigma) ** 2)
