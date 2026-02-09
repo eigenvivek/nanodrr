@@ -1,8 +1,7 @@
 import torch
 from jaxtyping import Float
+from roma import rotmat_to_rotvec
 from torch import Tensor
-
-from ..geometry import so3_log_map
 
 
 class DoubleGeodesicSE3(torch.nn.Module):
@@ -34,7 +33,7 @@ class DoubleGeodesicSE3(torch.nn.Module):
         r1: Float[Tensor, "B 3 3"],
         r2: Float[Tensor, "B 3 3"],
     ) -> Float[Tensor, "B"]:
-        return self.sdr * so3_log_map(r1.transpose(-1, -2) @ r2).norm(dim=-1)
+        return self.sdr * rotmat_to_rotvec(r1.transpose(-1, -2) @ r2).norm(dim=-1)
 
     def _xyz_geodesic(
         self,

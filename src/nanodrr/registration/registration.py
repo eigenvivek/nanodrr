@@ -1,9 +1,10 @@
 import torch
 from jaxtyping import Float
+from roma import rotvec_to_rotmat
 
 from ..data import Subject
 from ..drr import render
-from ..geometry import so3_exp_map, transform_point
+from ..geometry import transform_point
 
 
 class Registration(torch.nn.Module):
@@ -48,7 +49,7 @@ class Registration(torch.nn.Module):
 
     @property
     def pose(self) -> Float[torch.Tensor, "1 4 4"]:
-        R = so3_exp_map(self._rot)
+        R = rotvec_to_rotmat(self._rot)
         t = torch.einsum("bij,bj->bi", R, self._xyz)
         T = torch.eye(4, device=self._rot.device)[None]
         T[:, :3, :3] = R
