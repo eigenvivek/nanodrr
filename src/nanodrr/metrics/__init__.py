@@ -1,3 +1,4 @@
+from .geo import DoubleGeodesicSE3
 from .ncc import (
     GradientNormalizedCrossCorrelation2d,
     MultiscaleNormalizedCrossCorrelation2d,
@@ -5,6 +6,7 @@ from .ncc import (
 )
 
 __all__ = [
+    "DoubleGeodesicSE3",
     "GradientNormalizedCrossCorrelation2d",
     "MultiscaleNormalizedCrossCorrelation2d",
     "NormalizedCrossCorrelation2d",
