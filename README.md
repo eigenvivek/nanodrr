@@ -8,7 +8,7 @@ A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenv
 - [x] As-modular-as-possible implementation (e.g., freely swap subjects/extrinsics/intrinsics)
 - [x] Compatibility with `torch.compile`
 - [x] Compatibility with mixed precision
-- [ ] Compatibility with [`torchio` dataloaders](https://docs.torchio.org/data/dataset.html)
+- [x] Compatibility with [`torchio` dataloaders](https://docs.torchio.org/data/dataset.html)
 - [x] Extensive typehints with `jaxtyping`
 - [x] Traditional python package structure with `uv`
 
