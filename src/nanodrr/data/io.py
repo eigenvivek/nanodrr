@@ -10,6 +10,7 @@ class Subject(torch.nn.Module):
         self,
         imagedata: Float[torch.Tensor, "1 1 D H W"],
         labeldata: Float[torch.Tensor, "1 1 D H W"],
+        voxel_to_world: Float[torch.Tensor, "4 4"],
         world_to_voxel: Float[torch.Tensor, "4 4"],
         voxel_to_grid: Float[torch.Tensor, "4 4"],
         isocenter: Float[torch.Tensor, "3"],
@@ -18,11 +19,13 @@ class Subject(torch.nn.Module):
         self.register_buffer("image", imagedata)
         self.register_buffer("label", labeldata)
         self.register_buffer("world_to_grid", voxel_to_grid @ world_to_voxel)
-        self.register_buffer("world_to_voxel", world_to_voxel)
-        self.register_buffer("voxel_to_grid", voxel_to_grid)
         self.register_buffer("isocenter", isocenter)
 
-        self.n_classes: int = int(self.label.max().item()) + 1
+        self.register_buffer("voxel_to_world", voxel_to_world)
+        self.register_buffer("world_to_voxel", world_to_voxel)
+        self.register_buffer("voxel_to_grid", voxel_to_grid)
+
+        self.n_classes = int(self.label.max().item()) + 1
 
     @classmethod
     def from_filepath(
@@ -65,12 +68,10 @@ class Subject(torch.nn.Module):
         dims = torch.tensor([W - 1, H - 1, D - 1], dtype=torch.float32)
         scale = 2.0 / dims
         voxel_to_grid = torch.eye(4, dtype=torch.float32)
-        voxel_to_grid[0, 0] = scale[0]
-        voxel_to_grid[1, 1] = scale[1]
-        voxel_to_grid[2, 2] = scale[2]
+        voxel_to_grid[:3, :3] = torch.diag(scale)
         voxel_to_grid[:3, 3] = -1.0
 
-        return cls(imagedata, labeldata, world_to_voxel, voxel_to_grid, isocenter)
+        return cls(imagedata, labeldata, voxel_to_world, world_to_voxel, voxel_to_grid, isocenter)
 
     @staticmethod
     def hu_to_mu(data: Float[torch.Tensor, "1 1 D H W"], mu_water: float) -> Float[torch.Tensor, "1 1 D H W"]:
