@@ -1,6 +1,8 @@
 import torch
 from jaxtyping import Float
 
+from ..geometry import convert
+
 
 def make_rt_inv(
     rotation: Float[torch.Tensor, "B 3"],
@@ -34,7 +36,6 @@ def make_rt_inv(
     if orientation not in (None, "AP", "PA"):
         raise ValueError(f"Unknown orientation: {orientation}. Use 'AP', 'PA', or None")
 
-    batch_size = rotation.shape[0]
     device = rotation.device
     dtype = rotation.dtype
 
@@ -42,19 +43,8 @@ def make_rt_inv(
     if isocenter is None:
         isocenter = torch.zeros(3, device=device, dtype=dtype)
 
-    # Get rotation matrices from Euler angles
-    R = euler_to_matrix(rotation)  # (batch, 3, 3)
-
-    # Compute camera center: R @ translation + isocenter
-    # bij,bj->bi : batched matrix-vector multiply
-    camera_center = torch.einsum("bij,bj->bi", R, translation)
-    camera_center = camera_center + isocenter
-
-    # Build 4x4 pose matrices [R | camera_center]
-    pose = torch.zeros(batch_size, 4, 4, device=device, dtype=dtype)
-    pose[:, :3, :3] = R
-    pose[:, :3, 3] = camera_center
-    pose[:, 3, 3] = 1.0
+    # Construct the C-arm pose relative to the subject's isocenter
+    pose = convert(rotation, translation, "euler", convention="ZXY", isocenter=isocenter)
 
     # Apply orientation (pose @ combined)
     # bij,jk->bik : batched matrix times single matrix

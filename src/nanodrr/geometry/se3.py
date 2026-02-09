@@ -18,7 +18,8 @@ def convert(
     translation: Float[torch.Tensor, "B 3"],
     parameterization: Param,
     convention: str = None,
-    degrees: bool = False,
+    degrees: bool = True,
+    isocenter: Float[torch.Tensor, "3"] | None = None,
 ) -> Float[torch.Tensor, "B 4 4"]:
     """Convert a rotation parameterization + camera center into a (B, 4, 4) SE(3) matrix.
 
@@ -49,6 +50,8 @@ def convert(
 
     R = rotation_to_matrix(rotation, parameterization, convention, degrees)
     t = torch.einsum("bij, bj -> bi", R, translation)
+    if isocenter is not None:
+        t = t + isocenter
     return make_se3(R, t)
 
 
