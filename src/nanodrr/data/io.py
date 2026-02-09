@@ -1,18 +1,19 @@
 from pathlib import Path
 
 import torch
+from jaxtyping import Float
 from torchio import ScalarImage, LabelMap
 
 
 class Subject(torch.nn.Module):
     def __init__(
         self,
-        imagedata: torch.Tensor,
-        labeldata: torch.Tensor,
-        world_to_voxel: torch.Tensor,
-        voxel_to_grid: torch.Tensor,
-        isocenter: torch.Tensor,
-    ):
+        imagedata: Float[torch.Tensor, "1 1 D H W"],
+        labeldata: Float[torch.Tensor, "1 1 D H W"],
+        world_to_voxel: Float[torch.Tensor, "4 4"],
+        voxel_to_grid: Float[torch.Tensor, "4 4"],
+        isocenter: Float[torch.Tensor, "3"],
+    ) -> None:
         super().__init__()
         self.register_buffer("image", imagedata)
         self.register_buffer("label", labeldata)
@@ -20,16 +21,16 @@ class Subject(torch.nn.Module):
         self.register_buffer("voxel_to_grid", voxel_to_grid)
         self.register_buffer("isocenter", isocenter)
 
-        self.n_classes = int(self.label.max().item()) + 1
+        self.n_classes: int = int(self.label.max().item()) + 1
 
     @classmethod
     def from_filepath(
         cls,
         imagepath: str | Path,
-        labelpath: str | Path = None,
+        labelpath: str | Path | None = None,
         convert_to_mu: bool = True,
         mu_water: float = 0.019,
-    ):
+    ) -> Subject:
         image = ScalarImage(imagepath)
         label = LabelMap(labelpath) if labelpath is not None else None
 
@@ -60,10 +61,10 @@ class Subject(torch.nn.Module):
         return cls(imagedata, labeldata, world_to_voxel, voxel_to_grid, isocenter)
 
     @staticmethod
-    def hu_to_mu(data: torch.Tensor, mu_water: float) -> torch.Tensor:
+    def hu_to_mu(data: Float[torch.Tensor, "1 1 D H W"], mu_water: float) -> Float[torch.Tensor, "1 1 D H W"]:
         data = data.clamp(-1000)
         return mu_water * (1 + data / 1000)
 
     @staticmethod
-    def fixdim(data: torch.Tensor) -> torch.Tensor:
+    def fixdim(data: Float[torch.Tensor, "1 W H D"]) -> Float[torch.Tensor, "1 1 D H W"]:
         return data.unsqueeze(0).permute(0, 1, -1, -2, -3).contiguous()
