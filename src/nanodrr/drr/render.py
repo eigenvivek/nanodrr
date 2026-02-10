@@ -45,8 +45,12 @@ def render(
     tgt = transform_point(xform, tgt)
 
     # Linearly interpolate sample points along each ray
-    t = torch.linspace(0, 1, n_samples, device=device, dtype=dtype)
-    pts = src[:, None, :, None] + t[None, :, None, None, None] * (tgt - src)[:, None, :, None]
+    t = torch.linspace(0, 1, n_samples, device=device, dtype=src.dtype)
+    pts = torch.lerp(
+        src[:, None, :, None],
+        tgt[:, None, :, None],
+        t[None, :, None, None, None],
+    )
 
     # Sample the volume
     img = F.grid_sample(
