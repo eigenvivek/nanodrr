@@ -34,3 +34,6 @@ lint.ignore = [
     "F722",  # Forward annotation false positive from jaxtyping
     "F821",  # Forward annotation false positive from jaxtyping
 ]
+
+[tool.uv.sources]
+roma = { git = "https://github.com/naver/roma" }
