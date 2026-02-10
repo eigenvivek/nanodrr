@@ -98,6 +98,7 @@ def rotation_to_matrix(
 
     if parameterization == Parameterization.QUATERNION_ADJUGATE:
         q = quaternion_adjugate_to_quaternion(rotation)
+        q = roma.quat_wxyz_to_xyzw(q)
         return roma.unitquat_to_rotmat(q)
 
     if parameterization == Parameterization.ROTATION_9D:
