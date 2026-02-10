@@ -90,6 +90,9 @@ def get_orientation_matrix(
 ) -> Float[torch.Tensor, "4 4"]:
     """Get the combined orientation + Rz(180°) matrix.
 
+    AP uses a -90 degree x-rotation, PA uses a +90 degree x-rotation,
+    then both apply Rz(180 deg).
+
     Args:
         orientation: "AP", "PA", or None
         device: torch device
@@ -113,7 +116,7 @@ def get_orientation_matrix(
         combined = torch.tensor(
             [
                 [-1.0, 0.0, 0.0, 0.0],
-                [0.0, 0.0, -1.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
                 [0.0, -1.0, 0.0, 0.0],
                 [0.0, 0.0, 0.0, 1.0],
             ],
