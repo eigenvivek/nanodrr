@@ -1,6 +1,6 @@
 import torch
 from jaxtyping import Float
-from roma import rotmat_to_rotvec
+from roma import rotmat_geodesic_distance
 from torch import Tensor
 
 
@@ -23,6 +23,8 @@ class DoubleGeodesicSE3(torch.nn.Module):
     ) -> tuple[Float[Tensor, "B"], Float[Tensor, "B"], Float[Tensor, "B"]]:
         r1, t1 = pose_1[:, :3, :3], pose_1[:, :3, 3]
         r2, t2 = pose_2[:, :3, :3], pose_2[:, :3, 3]
+        t1 = torch.einsum("bij,bj->bi", r1.transpose(-1, -2), t1)
+        t2 = torch.einsum("bij,bj->bi", r2.transpose(-1, -2), t2)
         rot = self._rot_geodesic(r1, r2)
         xyz = self._xyz_geodesic(t1, t2)
         dou = (rot.square() + xyz.square() + self.eps).sqrt()
@@ -33,7 +35,7 @@ class DoubleGeodesicSE3(torch.nn.Module):
         r1: Float[Tensor, "B 3 3"],
         r2: Float[Tensor, "B 3 3"],
     ) -> Float[Tensor, "B"]:
-        return self.sdr * rotmat_to_rotvec(r1.transpose(-1, -2) @ r2).norm(dim=-1)
+        return self.sdr * rotmat_geodesic_distance(r1, r2)
 
     def _xyz_geodesic(
         self,
