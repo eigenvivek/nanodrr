@@ -8,7 +8,7 @@ A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenv
 - Extensive type hints with `jaxtyping`
 - Standard Python package structure managed with `uv`
 
-All projective geometry is implemented internally using the standard Hartley and Zisserman pinhole camera formulation.
+All projective geometry is implemented internally using the standard [Hartley and Zisserman](https://www.cambridge.org/core/books/multiple-view-geometry-in-computer-vision/0B6F289C78B2B23F596CAA76D3D43F7A) pinhole camera formulation.
 
 ## Installation
 
