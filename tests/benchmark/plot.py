@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-
 METHOD_COLORS = {
     "nanodrr (float32)": "#4C72B0",
     "nanodrr + compile (float32)": "#4C72B0",
@@ -42,9 +41,9 @@ def plot(df: pd.DataFrame, output: str) -> None:
     plt.rcParams.update(
         {
             "font.family": "sans-serif",
-            "font.size": 9,
-            "axes.titlesize": 11,
-            "axes.labelsize": 10,
+            "font.size": 12,
+            "axes.titlesize": 14,
+            "axes.labelsize": 13,
             "axes.spines.top": False,
             "axes.spines.right": False,
             "figure.dpi": 150,
@@ -178,8 +177,8 @@ def plot(df: pd.DataFrame, output: str) -> None:
         loc="lower center",
         ncol=len(methods),
         frameon=False,
-        fontsize=8.5,
-        bbox_to_anchor=(0.5, -0.08),
+        fontsize=11,
+        bbox_to_anchor=(0.5, -0.12),
     )
 
     fig.savefig(output)
