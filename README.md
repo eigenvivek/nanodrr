@@ -2,7 +2,7 @@
 
 A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the following improvements:
 
-- Optimized, pure PyTorch implementation (**~5× faster than `DiffDRR` out of the box**)
+- Optimized, pure PyTorch implementation (**~5× faster than `DiffDRR` at baseline**)
 - Modular design (freely swap subjects, extrinsics, and intrinsics during rendering)
 - Compatibility with `torch.compile` and mixed precision
 - Extensive type hints with `jaxtyping`
@@ -14,7 +14,7 @@ All projective geometry is implemented internally using the standard Hartley and
 
 > [!NOTE]
 >
-> On `pytorch<2.9`, `torch.compile` with `bfloat16` is slower than eager due to a CUDA graph capture issue. Use `pytorch>=2.9` (Triton ≥3.5) for best results.
+> On `pytorch<2.9`, `torch.compile` with `bfloat16` is slower than eager due to a CUDA graph capture issue (see [Benchmarks](#benchmarks)). Use `pytorch>=2.9` (Triton ≥3.5) for best results.
 
 ```
 pip install "git+https://github.com/eigenvivek/nanodrr.git"
@@ -23,9 +23,9 @@ pip install "git+https://github.com/eigenvivek/nanodrr.git"
 ## Benchmarks
 
 > [!IMPORTANT]
-- **~5× faster** than [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) out of the box, without compilation (946 FPS vs 213 FPS)
-- **~8× faster** with `torch.compile` and `bfloat16` on `pytorch>=2.9` (1,650 FPS vs 213 FPS)
-- **~2.5× less memory** than `DiffDRR` (516 MB vs 1,344 MB peak reserved with `bfloat16` + compile)
+> - **~5× faster** than [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) out of the box, without compilation (946 FPS vs 213 FPS)
+> - **~8× faster** with `torch.compile` and `bfloat16` on `pytorch>=2.9` (1,650 FPS vs 213 FPS)
+> - **~2.5× less memory** than `DiffDRR` (516 MB vs 1,344 MB peak reserved with `bfloat16` + compile)
 
 ![Benchmarking runtime, FPS, and memory usage.](tests/benchmark/benchmark.png "benchmark")
 
