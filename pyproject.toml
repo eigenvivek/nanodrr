@@ -1,32 +1,27 @@
 [project]
 name = "nanodrr"
 version = "0.1.0"
-description = "Add your description here"
+description = "Blazing fast differentiable DRR rendering in modern PyTorch"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "jaxtyping>=0.3.7",
-    "matplotlib>=3.10.8",
-    "roma>=1.5.5",
-    "torch>=2.10.0",
-    "torchio>=0.21.2",
+    "jaxtyping>=0.3.0",
+    "matplotlib",
+    "roma>=1.5.6",
+    "torch>=2.4",
+    "torchio>=0.21.0",
 ]
 
 [project.optional-dependencies]
 jupyter = [
-    "jupyter-ruff>=0.3.1",
-    "jupyterlab>=4.5.3",
-    "jupyterlab-execute-time>=3.3.0",
+    "jupyter-ruff",
+    "jupyterlab",
+    "jupyterlab-execute-time",
 ]
 
 [build-system]
 requires = ["uv_build>=0.9.30,<0.10.0"]
 build-backend = "uv_build"
-
-[dependency-groups]
-dev = [
-    "diffdrr>=0.6.0",
-]
 
 [tool.ruff]
 line-length = 120
@@ -34,6 +29,3 @@ lint.ignore = [
     "F722",  # Forward annotation false positive from jaxtyping
     "F821",  # Forward annotation false positive from jaxtyping
 ]
-
-[tool.uv.sources]
-roma = { git = "https://github.com/naver/roma" }
