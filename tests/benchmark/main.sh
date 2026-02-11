@@ -62,8 +62,8 @@ echo "============================================"
 
 uv run \
     --python 3.12 \
-    --with "matplotlib" \
     --with "pandas" \
+    --with "ultraplot" \
     "$SCRIPT_DIR/plot.py"
 
 echo ""

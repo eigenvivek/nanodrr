@@ -1,209 +1,129 @@
 import argparse
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import ultraplot as uplt
+
+uplt.rc["font.name"] = "Fira Sans"
 
 METHOD_COLORS = {
-    "nanodrr (float32)": "#4C72B0",
-    "nanodrr + compile (float32)": "#4C72B0",
-    "nanodrr (bfloat16)": "#DD8452",
-    "nanodrr + compile (bfloat16)": "#DD8452",
-    "DiffDRR (float32)": "#8C8C8C",
+    "nanodrr (float32)": "#2E86AB",
+    "nanodrr + compile (float32)": "#2E86AB",
+    "nanodrr (bfloat16)": "#E63946",
+    "nanodrr + compile (bfloat16)": "#E63946",
+    "DiffDRR (float32)": "#6C757D",
 }
 
-SHORT_LABELS = {
-    "DiffDRR (float32)": "DiffDRR\n(fp32)",
-    "nanodrr (float32)": "nanodrr\n(fp32)",
-    "nanodrr + compile (float32)": "nanodrr\n(fp32 + compile)",
-    "nanodrr (bfloat16)": "nanodrr\n(bf16)",
-    "nanodrr + compile (bfloat16)": "nanodrr\n(bf16 + compile)",
+METHOD_MARKERS = {
+    "DiffDRR (float32)": "D",
+    "nanodrr (float32)": "o",
+    "nanodrr + compile (float32)": "s",
+    "nanodrr (bfloat16)": "o",
+    "nanodrr + compile (bfloat16)": "s",
 }
 
+METHOD_LINESTYLES = {
+    "nanodrr (float32)": "-",
+    "nanodrr + compile (float32)": (0, (1, 1)),
+    "nanodrr (bfloat16)": "-",
+    "nanodrr + compile (bfloat16)": (0, (1, 1)),
+    "DiffDRR (float32)": "-",
+}
 
-def _parse_pytorch_major_minor(version_str: str) -> str:
-    """'2.4.1+cu121' -> '2.4'"""
-    base = version_str.split("+")[0]
-    parts = base.split(".")
-    return f"{parts[0]}.{parts[1]}"
+METHOD_ORDER = [
+    "DiffDRR (float32)",
+    "nanodrr (float32)",
+    "nanodrr + compile (float32)",
+    "nanodrr (bfloat16)",
+    "nanodrr + compile (bfloat16)",
+]
+
+
+def format_label(method):
+    """Convert 'nanodrr + compile (float32)' -> 'nanodrr\n(fp32 + compile)'"""
+    base = method.replace(" + compile", "").replace(" (float32)", "").replace(" (bfloat16)", "")
+    dtype = "fp32" if "float32" in method else "bf16" if "bfloat16" in method else ""
+    compile_str = " + compile" if "+ compile" in method else ""
+    return f"{base}\n({dtype}{compile_str})" if dtype else base
+
+
+def get_values(df, method, pt_versions, col, err_col=None):
+    """Extract values and errors for a method across versions"""
+    vals, errs = [], []
+    for ver in pt_versions:
+        row = df[(df["pytorch_version"] == ver) & (df["name"] == method)]
+        if len(row) == 1:
+            vals.append(float(row[col].iloc[0]))
+            errs.append(float(row[err_col].iloc[0]) if err_col else 0)
+        else:
+            vals.append(np.nan)
+            errs.append(0)
+    return vals, errs
 
 
 def plot(df: pd.DataFrame, output: str) -> None:
-    methods = list(SHORT_LABELS.keys())
-    pt_versions = sorted(
-        df["pytorch_version"].unique(),
-        key=lambda v: list(map(int, v.split("+")[0].split(".")[:2])),
-    )
-    pt_labels = [_parse_pytorch_major_minor(v) for v in pt_versions]
+    methods = [m for m in METHOD_ORDER if m in df["name"].unique()]
+    pt_versions = sorted(df["pytorch_version"].unique(), key=lambda v: list(map(int, v.split("+")[0].split(".")[:2])))
+    pt_labels = [v.split("+")[0].rsplit(".", 1)[0] for v in pt_versions]
     x = np.arange(len(pt_versions))
 
-    plt.rcParams.update(
-        {
-            "font.family": "sans-serif",
-            "font.size": 12,
-            "axes.titlesize": 14,
-            "axes.labelsize": 13,
-            "axes.spines.top": False,
-            "axes.spines.right": False,
-            "figure.dpi": 150,
-            "savefig.dpi": 300,
-            "savefig.bbox": "tight",
-            "savefig.pad_inches": 0.15,
-        }
-    )
+    fig, axs = uplt.subplots(ncols=2, sharex=True, sharey=False)
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
-
-    panels = [
-        {
-            "ax": axes[0],
-            "title": "Runtime (↓)",
-            "col": "mean_us",
-            "err_col": "std_us",
-            "ylabel": "Time (ms)",
-            "scale": 1e-3,
-            "log": True,
-        },
-        {
-            "ax": axes[1],
-            "title": "FPS (↑)",
-            "col": "fps_mean",
-            "err_col": "fps_std",
-            "ylabel": "FPS",
-            "scale": 1.0,
-            "log": False,
-        },
-        {
-            "ax": axes[2],
-            "title": "Peak Memory Reserved (↓)",
-            "col": "peak_reserved_mb",
-            "err_col": None,
-            "ylabel": "Memory (MB)",
-            "scale": 1.0,
-            "log": False,
-        },
-    ]
-
-    METHOD_MARKERS = {
-        "DiffDRR (float32)": "D",
-        "nanodrr (float32)": "o",
-        "nanodrr + compile (float32)": "s",
-        "nanodrr (bfloat16)": "o",
-        "nanodrr + compile (bfloat16)": "s",
-    }
-
-    METHOD_LINESTYLES = {
-        "nanodrr (float32)": "-",
-        "nanodrr + compile (float32)": "--",
-        "nanodrr (bfloat16)": "-",
-        "nanodrr + compile (bfloat16)": "--",
-        "DiffDRR (float32)": "-",
-    }
-
-    for panel in panels:
-        ax = panel["ax"]
-        scale = panel["scale"]
-        for method in methods:
-            vals, errs = [], []
-            for ver in pt_versions:
-                row = df[(df["pytorch_version"] == ver) & (df["name"] == method)]
-                if len(row) == 1:
-                    vals.append(float(row[panel["col"]].iloc[0]) * scale)
-                    if panel["err_col"]:
-                        errs.append(float(row[panel["err_col"]].iloc[0]) * scale)
-                    else:
-                        errs.append(0)
-                else:
-                    vals.append(np.nan)
-                    errs.append(0)
-
-            color = METHOD_COLORS.get(method, "#555555")
-            marker = METHOD_MARKERS.get(method, "o")
-            linestyle = METHOD_LINESTYLES.get(method, "-")
-            label = SHORT_LABELS.get(method, method)
-
-            ax.errorbar(
-                x,
-                vals,
-                yerr=errs if panel["err_col"] else None,
-                color=color,
-                marker=marker,
-                linestyle=linestyle,
-                linewidth=1.8,
-                markersize=6,
-                capsize=3,
-                capthick=1,
-                label=label,
-                zorder=3,
-            )
-
-        if panel["log"]:
-            ax.set_yscale("log")
-            import matplotlib.ticker as ticker
-
-            custom_ticks = [0.6, 0.7, 0.8, 0.9, 1, 2, 3, 4]
-            ax.set_yticks(custom_ticks)
-            ax.set_yticklabels([str(t) for t in custom_ticks])
-            ax.yaxis.set_minor_formatter(ticker.NullFormatter())
-
-        ax.set_title(panel["title"])
-        ax.set_ylabel(panel["ylabel"])
-        ax.set_xticks(x)
-        ax.set_xticklabels(pt_labels)
-        ax.set_xlabel("PyTorch version")
-        ax.grid(alpha=0.3, linewidth=0.5, zorder=0)
-        ax.set_axisbelow(True)
-
-    # Single legend below (line style + color only, no markers or errorbars)
-    from matplotlib.lines import Line2D
-
-    handles, labels = axes[0].get_legend_handles_labels()
-    clean_handles = []
-    for h in handles:
-        line = h.lines[0] if hasattr(h, "lines") else h
-        clean_handles.append(
-            Line2D(
-                [0],
-                [0],
-                color=line.get_color(),
-                linestyle=line.get_linestyle(),
-                linewidth=line.get_linewidth(),
-            )
+    # Left: FPS with error bars
+    for method in methods:
+        vals, errs = get_values(df, method, pt_versions, "fps_mean", "fps_std")
+        axs[0].errorbar(
+            x,
+            vals,
+            yerr=errs,
+            label=format_label(method),
+            color=METHOD_COLORS[method],
+            marker=METHOD_MARKERS[method],
+            linestyle=METHOD_LINESTYLES[method],
+            markersize=5,
         )
-    fig.legend(
-        clean_handles,
-        labels,
-        loc="lower center",
-        ncol=len(methods),
-        frameon=False,
-        fontsize=11,
-        bbox_to_anchor=(0.5, -0.12),
+
+    axs[0].format(
+        title="Rendering Speed (↑)",
+        ylabel="Frames per Second [FPS]",
+        xlabel="PyTorch Version",
+        xticks=x,
+        xticklabels=pt_labels,
     )
 
-    fig.savefig(output)
+    # Right: Memory (no labels or error bars)
+    for method in methods:
+        vals, _ = get_values(df, method, pt_versions, "peak_reserved_mb")
+        axs[1].errorbar(
+            x,
+            vals,
+            color=METHOD_COLORS[method],
+            marker=METHOD_MARKERS[method],
+            linestyle=METHOD_LINESTYLES[method],
+            markersize=5,
+        )
+
+    axs[1].format(
+        title="GPU Memory Usage (↓)",
+        ylabel="Peak Memory Reserved [MB]",
+        xlabel="PyTorch Version",
+        xticks=x,
+        xticklabels=pt_labels,
+    )
+
+    fig.legend(loc="b", ncols=5, frameon=True)
+    fig.savefig(output, dpi=300)
     print(f"Figure saved to {output}")
-    plt.close(fig)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Plot benchmark results.")
-    parser.add_argument(
-        "--input",
-        "-i",
-        default=str(Path(__file__).parent / "benchmark.csv"),
-        help="Path to benchmark CSV (default: ./benchmark.csv)",
-    )
-    parser.add_argument(
-        "--output",
-        "-o",
-        default=str(Path(__file__).parent / "benchmark.png"),
-        help="Output figure path (default: ./benchmark.png)",
-    )
+    parser.add_argument("--input", "-i", default=str(Path(__file__).parent / "benchmark.csv"))
+    parser.add_argument("--output", "-o", default=str(Path(__file__).parent / "benchmark.png"))
     args = parser.parse_args()
 
-    df = pd.read_csv(args.input)
-    plot(df, args.output)
+    plot(pd.read_csv(args.input), args.output)
 
 
 if __name__ == "__main__":
