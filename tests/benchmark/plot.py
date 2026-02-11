@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import argparse
 from pathlib import Path
 
@@ -17,11 +15,11 @@ METHOD_COLORS = {
 }
 
 SHORT_LABELS = {
-    "nanodrr (float32)": "fp32",
-    "nanodrr + compile (float32)": "fp32\n+compile",
-    "nanodrr (bfloat16)": "bf16",
-    "nanodrr + compile (bfloat16)": "bf16\n+compile",
     "DiffDRR (float32)": "DiffDRR\n(fp32)",
+    "nanodrr (float32)": "nanodrr\n(fp32)",
+    "nanodrr + compile (float32)": "nanodrr\n(fp32 + compile)",
+    "nanodrr (bfloat16)": "nanodrr\n(bf16)",
+    "nanodrr + compile (bfloat16)": "nanodrr\n(bf16 + compile)",
 }
 
 
@@ -46,7 +44,6 @@ def plot(df: pd.DataFrame, output: str) -> None:
             "font.family": "sans-serif",
             "font.size": 9,
             "axes.titlesize": 11,
-            "axes.titleweight": "bold",
             "axes.labelsize": 10,
             "axes.spines.top": False,
             "axes.spines.right": False,
@@ -58,42 +55,43 @@ def plot(df: pd.DataFrame, output: str) -> None:
     )
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
-    fig.suptitle(
-        "nanodrr Benchmark — across PyTorch versions",
-        fontsize=13,
-        fontweight="bold",
-    )
 
     panels = [
         {
             "ax": axes[0],
-            "title": "Runtime",
+            "title": "Runtime (↓)",
             "col": "mean_us",
             "err_col": "std_us",
-            "ylabel": "Time (μs)",
+            "ylabel": "Time (ms)",
+            "scale": 1e-3,
+            "log": True,
         },
         {
             "ax": axes[1],
-            "title": "Throughput",
+            "title": "FPS (↑)",
             "col": "fps_mean",
             "err_col": "fps_std",
             "ylabel": "FPS",
+            "scale": 1.0,
+            "log": False,
         },
         {
             "ax": axes[2],
-            "title": "Peak Memory Reserved",
+            "title": "Peak Memory Reserved (↓)",
             "col": "peak_reserved_mb",
             "err_col": None,
             "ylabel": "Memory (MB)",
+            "scale": 1.0,
+            "log": False,
         },
     ]
 
     METHOD_MARKERS = {
+        "DiffDRR (float32)": "D",
         "nanodrr (float32)": "o",
         "nanodrr + compile (float32)": "s",
         "nanodrr (bfloat16)": "o",
         "nanodrr + compile (bfloat16)": "s",
-        "DiffDRR (float32)": "D",
     }
 
     METHOD_LINESTYLES = {
@@ -106,14 +104,15 @@ def plot(df: pd.DataFrame, output: str) -> None:
 
     for panel in panels:
         ax = panel["ax"]
+        scale = panel["scale"]
         for method in methods:
             vals, errs = [], []
             for ver in pt_versions:
                 row = df[(df["pytorch_version"] == ver) & (df["name"] == method)]
                 if len(row) == 1:
-                    vals.append(float(row[panel["col"]].iloc[0]))
+                    vals.append(float(row[panel["col"]].iloc[0]) * scale)
                     if panel["err_col"]:
-                        errs.append(float(row[panel["err_col"]].iloc[0]))
+                        errs.append(float(row[panel["err_col"]].iloc[0]) * scale)
                     else:
                         errs.append(0)
                 else:
@@ -140,6 +139,15 @@ def plot(df: pd.DataFrame, output: str) -> None:
                 zorder=3,
             )
 
+        if panel["log"]:
+            ax.set_yscale("log")
+            import matplotlib.ticker as ticker
+
+            custom_ticks = [0.6, 0.7, 0.8, 0.9, 1, 2, 3, 4]
+            ax.set_yticks(custom_ticks)
+            ax.set_yticklabels([str(t) for t in custom_ticks])
+            ax.yaxis.set_minor_formatter(ticker.NullFormatter())
+
         ax.set_title(panel["title"])
         ax.set_ylabel(panel["ylabel"])
         ax.set_xticks(x)
@@ -148,10 +156,24 @@ def plot(df: pd.DataFrame, output: str) -> None:
         ax.grid(alpha=0.3, linewidth=0.5, zorder=0)
         ax.set_axisbelow(True)
 
-    # Single legend below
+    # Single legend below (line style + color only, no markers or errorbars)
+    from matplotlib.lines import Line2D
+
     handles, labels = axes[0].get_legend_handles_labels()
+    clean_handles = []
+    for h in handles:
+        line = h.lines[0] if hasattr(h, "lines") else h
+        clean_handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=line.get_color(),
+                linestyle=line.get_linestyle(),
+                linewidth=line.get_linewidth(),
+            )
+        )
     fig.legend(
-        handles,
+        clean_handles,
         labels,
         loc="lower center",
         ncol=len(methods),
