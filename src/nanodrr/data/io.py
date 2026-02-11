@@ -2,7 +2,9 @@ from pathlib import Path
 
 import torch
 from jaxtyping import Float
-from torchio import ScalarImage, LabelMap
+from torchio import LabelMap, ScalarImage
+
+from .preprocess import hu_to_mu
 
 
 class Subject(torch.nn.Module):
@@ -60,7 +62,7 @@ class Subject(torch.nn.Module):
         label: LabelMap | None = None,
         convert_to_mu: bool = True,
         mu_water: float = 0.019,
-    ):
+    ) -> "Subject":
         """Construct a subject from TorchIO image objects.
 
         Args:
@@ -70,36 +72,50 @@ class Subject(torch.nn.Module):
             mu_water: Linear attenuation coefficient of water (mm⁻¹).
         """
         # Affine: invert in float64 for numerical accuracy, then downcast
-        voxel_to_world = torch.from_numpy(image.affine)
-        world_to_voxel = voxel_to_world.inverse().to(dtype=torch.float32)
-        voxel_to_world = voxel_to_world.to(dtype=torch.float32)
+        voxel_to_world_f64 = torch.from_numpy(image.affine).to(torch.float64)
+        voxel_to_world = voxel_to_world_f64.to(torch.float32)
+        world_to_voxel = voxel_to_world_f64.inverse().to(torch.float32)
 
-        # Load the image data
-        imagedata = cls.fixdim(image.data)
+        # Image data
+        imagedata = cls._to_bcdhw(image.data).to(torch.float32)
         if convert_to_mu:
-            imagedata = cls.hu_to_mu(imagedata, mu_water)
+            imagedata = hu_to_mu(imagedata, mu_water)
 
-        # Load the label data
-        labeldata = cls.fixdim(label.data.to(imagedata)) if label is not None else torch.zeros_like(imagedata)
+        # Label data
+        if label is not None:
+            labeldata = cls._to_bcdhw(label.data).to(torch.float32)
+        else:
+            labeldata = torch.zeros_like(imagedata)
 
-        # Get the isocenter
-        isocenter = torch.tensor(image.get_center()).to(dtype=torch.float32)
+        isocenter = torch.tensor(image.get_center(), dtype=torch.float32)
+        voxel_to_grid = cls._make_voxel_to_grid(imagedata.shape)
 
-        # Precompute voxel-to-grid transform for grid_sample
-        *_, D, H, W = imagedata.shape
-        dims = torch.tensor([W - 1, H - 1, D - 1], dtype=torch.float32)
-        scale = 2.0 / dims
-        voxel_to_grid = torch.eye(4, dtype=torch.float32)
-        voxel_to_grid[:3, :3] = torch.diag(scale)
-        voxel_to_grid[:3, 3] = -1.0
-
-        return cls(imagedata, labeldata, voxel_to_world, world_to_voxel, voxel_to_grid, isocenter)
-
-    @staticmethod
-    def hu_to_mu(data: Float[torch.Tensor, "1 1 D H W"], mu_water: float) -> Float[torch.Tensor, "1 1 D H W"]:
-        data = data.clamp(-1000)
-        return mu_water * (1 + data / 1000)
+        return cls(
+            imagedata,
+            labeldata,
+            voxel_to_world,
+            world_to_voxel,
+            voxel_to_grid,
+            isocenter,
+        )
 
     @staticmethod
-    def fixdim(data: Float[torch.Tensor, "1 W H D"]) -> Float[torch.Tensor, "1 1 D H W"]:
-        return data.unsqueeze(0).permute(0, 1, -1, -2, -3).contiguous()
+    def _to_bcdhw(
+        data: Float[torch.Tensor, "1 W H D"],
+    ) -> Float[torch.Tensor, "1 1 D H W"]:
+        """Reshape TorchIO's (1, W, H, D) layout to (1, 1, D, H, W)."""
+        return data.unsqueeze(0).permute(0, 1, 4, 3, 2).contiguous()
+
+    @staticmethod
+    def _make_voxel_to_grid(shape: torch.Size) -> Float[torch.Tensor, "4 4"]:
+        """Build the voxel → [-1, 1] grid transform used by ``grid_sample``.
+
+        Args:
+            shape: (1, 1, D, H, W) volume shape.
+        """
+        *_, D, H, W = shape
+        scale = 2.0 / torch.tensor([W - 1, H - 1, D - 1], dtype=torch.float32)
+        mat = torch.eye(4, dtype=torch.float32)
+        mat[:3, :3] = torch.diag(scale)
+        mat[:3, 3] = -1.0
+        return mat
