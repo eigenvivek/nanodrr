@@ -41,7 +41,9 @@ class Subject(torch.nn.Module):
         imagepath: str | Path,
         labelpath: str | Path | None = None,
         convert_to_mu: bool = True,
-        mu_water: float = 0.019,
+        mu_water: float = 0.0192,
+        mu_bone: float = 0.0573,
+        hu_bone: float = 1000.0,
     ) -> "Subject":
         """Load a subject from NIfTI (or any TorchIO-supported) file paths.
 
@@ -53,7 +55,7 @@ class Subject(torch.nn.Module):
         """
         image = ScalarImage(imagepath)
         label = LabelMap(labelpath) if labelpath is not None else None
-        return cls.from_images(image, label, convert_to_mu, mu_water)
+        return cls.from_images(image, label, convert_to_mu, mu_water, mu_bone, hu_bone)
 
     @classmethod
     def from_images(
@@ -61,7 +63,9 @@ class Subject(torch.nn.Module):
         image: ScalarImage,
         label: LabelMap | None = None,
         convert_to_mu: bool = True,
-        mu_water: float = 0.019,
+        mu_water: float = 0.0192,
+        mu_bone: float = 0.0573,
+        hu_bone: float = 1000.0,
     ) -> "Subject":
         """Construct a subject from TorchIO image objects.
 
@@ -79,7 +83,7 @@ class Subject(torch.nn.Module):
         # Image data
         imagedata = cls._to_bcdhw(image.data).to(torch.float32)
         if convert_to_mu:
-            imagedata = hu_to_mu(imagedata, mu_water)
+            imagedata = hu_to_mu(imagedata, mu_water, mu_bone, hu_bone)
 
         # Label data
         if label is not None:
