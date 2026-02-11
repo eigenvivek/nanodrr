@@ -13,19 +13,40 @@ def make_k_inv(
     dtype: torch.dtype | None = None,
     device: torch.device | None = None,
 ) -> Float[torch.Tensor, "1 3 3"]:
+    """Build the inverse intrinsic matrix K⁻¹ for a cone-beam projector.
+
+    Focal lengths and principal point are derived from the physical geometry:
+
+        fx = sdd / delx          cy = y0 / dely + height / 2
+        fy = sdd / dely          cx = x0 / delx + width  / 2
+
+    The returned matrix is the analytical inverse of:
+
+        K = [[fx, 0, cx],
+             [0, fy, cy],
+             [0,  0,  1]]
+
+    Args:
+        sdd: Source-to-detector distance (mm).
+        delx, dely: Pixel spacing in x and y (mm/px).
+        x0, y0: Principal-point offset from detector centre (mm).
+        height, width: Detector dimensions in pixels.
+        dtype: Optional tensor dtype.
+        device: Optional tensor device.
+
+    Returns:
+        (1, 3, 3) inverse intrinsic matrix.
+    """
     fx = sdd / delx
     fy = sdd / dely
     cx = x0 / delx + width / 2.0
     cy = y0 / dely + height / 2.0
 
-    fx_inv = 1.0 / fx
-    fy_inv = 1.0 / fy
-
     return torch.tensor(
         [
             [
-                [fx_inv, 0.0, -cx * fx_inv],
-                [0.0, fy_inv, -cy * fy_inv],
+                [1.0 / fx, 0.0, -cx / fx],
+                [0.0, 1.0 / fy, -cy / fy],
                 [0.0, 0.0, 1.0],
             ]
         ],
