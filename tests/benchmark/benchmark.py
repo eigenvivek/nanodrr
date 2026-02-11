@@ -152,7 +152,7 @@ def main():
             sdd,
             height,
             width,
-            name="Torch grid sample (float32)",
+            name="nanodrr (float32)",
         )
     )
 
@@ -168,7 +168,7 @@ def main():
             sdd,
             height,
             width,
-            name="Torch grid sample + compile (float32)",
+            name="nanodrr + compile (float32)",
         )
     )
 
@@ -188,7 +188,7 @@ def main():
             sdd_bf16,
             height,
             width,
-            name="Torch grid sample (bfloat16)",
+            name="nanodrr (bfloat16)",
         )
     )
 
@@ -204,7 +204,7 @@ def main():
             sdd_bf16,
             height,
             width,
-            name="Torch grid sample + compile (bfloat16)",
+            name="nanodrr + compile (bfloat16)",
         )
     )
 

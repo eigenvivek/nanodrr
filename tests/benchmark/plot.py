@@ -9,18 +9,18 @@ import pandas as pd
 
 
 METHOD_COLORS = {
-    "Torch grid sample (float32)": "#4C72B0",
-    "Torch grid sample + compile (float32)": "#4C72B0",
-    "Torch grid sample (bfloat16)": "#DD8452",
-    "Torch grid sample + compile (bfloat16)": "#DD8452",
+    "nanodrr (float32)": "#4C72B0",
+    "nanodrr + compile (float32)": "#4C72B0",
+    "nanodrr (bfloat16)": "#DD8452",
+    "nanodrr + compile (bfloat16)": "#DD8452",
     "DiffDRR (float32)": "#8C8C8C",
 }
 
 SHORT_LABELS = {
-    "Torch grid sample (float32)": "fp32",
-    "Torch grid sample + compile (float32)": "fp32\n+compile",
-    "Torch grid sample (bfloat16)": "bf16",
-    "Torch grid sample + compile (bfloat16)": "bf16\n+compile",
+    "nanodrr (float32)": "fp32",
+    "nanodrr + compile (float32)": "fp32\n+compile",
+    "nanodrr (bfloat16)": "bf16",
+    "nanodrr + compile (bfloat16)": "bf16\n+compile",
     "DiffDRR (float32)": "DiffDRR\n(fp32)",
 }
 
@@ -89,18 +89,18 @@ def plot(df: pd.DataFrame, output: str) -> None:
     ]
 
     METHOD_MARKERS = {
-        "Torch grid sample (float32)": "o",
-        "Torch grid sample + compile (float32)": "s",
-        "Torch grid sample (bfloat16)": "o",
-        "Torch grid sample + compile (bfloat16)": "s",
+        "nanodrr (float32)": "o",
+        "nanodrr + compile (float32)": "s",
+        "nanodrr (bfloat16)": "o",
+        "nanodrr + compile (bfloat16)": "s",
         "DiffDRR (float32)": "D",
     }
 
     METHOD_LINESTYLES = {
-        "Torch grid sample (float32)": "-",
-        "Torch grid sample + compile (float32)": "--",
-        "Torch grid sample (bfloat16)": "-",
-        "Torch grid sample + compile (bfloat16)": "--",
+        "nanodrr (float32)": "-",
+        "nanodrr + compile (float32)": "--",
+        "nanodrr (bfloat16)": "-",
+        "nanodrr + compile (bfloat16)": "--",
         "DiffDRR (float32)": "-",
     }
 

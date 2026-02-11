@@ -23,7 +23,7 @@ PYTORCH_VERSIONS=(
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NANODRR_ROOT="${NANODRR_ROOT:-$(dirname "$SCRIPT_DIR")}"
+NANODRR_ROOT="${NANODRR_ROOT:-$(dirname "$(dirname "$SCRIPT_DIR")")}"
 BENCHMARK_SCRIPT="$SCRIPT_DIR/benchmark.py"
 RESULTS_CSV="$SCRIPT_DIR/benchmark.csv"
 
