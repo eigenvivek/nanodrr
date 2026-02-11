@@ -6,6 +6,12 @@ from torchio import ScalarImage, LabelMap
 
 
 class Subject(torch.nn.Module):
+    """CT volume and (optional) labelmap compatible with [`torch.nn.functional.grid_sample`](https://pytorch.org/docs/stable/generated/torch.nn.functional.grid_sample.html).
+
+    Fuses all spatial transforms for sampling (world → voxel → grid) so downstream
+    rendering only needs cheap matmuls.
+    """
+
     def __init__(
         self,
         imagedata: Float[torch.Tensor, "1 1 D H W"],
@@ -34,7 +40,15 @@ class Subject(torch.nn.Module):
         labelpath: str | Path | None = None,
         convert_to_mu: bool = True,
         mu_water: float = 0.019,
-    ):
+    ) -> "Subject":
+        """Load a subject from NIfTI (or any TorchIO-supported) file paths.
+
+        Args:
+            imagepath: Path to the CT volume.
+            labelpath: Optional path to a label map.
+            convert_to_mu: Convert Hounsfield units to linear attenuation.
+            mu_water: Linear attenuation coefficient of water (mm⁻¹).
+        """
         image = ScalarImage(imagepath)
         label = LabelMap(labelpath) if labelpath is not None else None
         return cls.from_images(image, label, convert_to_mu, mu_water)
@@ -47,7 +61,15 @@ class Subject(torch.nn.Module):
         convert_to_mu: bool = True,
         mu_water: float = 0.019,
     ):
-        # Load the affine matrix
+        """Construct a subject from TorchIO image objects.
+
+        Args:
+            image: CT volume as a ``ScalarImage``.
+            label: Optional segmentation as a ``LabelMap``.
+            convert_to_mu: Convert Hounsfield units to linear attenuation.
+            mu_water: Linear attenuation coefficient of water (mm⁻¹).
+        """
+        # Affine: invert in float64 for numerical accuracy, then downcast
         voxel_to_world = torch.from_numpy(image.affine)
         world_to_voxel = voxel_to_world.inverse().to(dtype=torch.float32)
         voxel_to_world = voxel_to_world.to(dtype=torch.float32)
