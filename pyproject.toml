@@ -12,13 +12,6 @@ dependencies = [
     "torchio>=0.21.0",
 ]
 
-[project.optional-dependencies]
-jupyter = [
-    "jupyter-ruff",
-    "jupyterlab",
-    "jupyterlab-execute-time",
-]
-
 [build-system]
 requires = ["uv_build>=0.9.30,<0.10.0"]
 build-backend = "uv_build"
@@ -28,4 +21,12 @@ line-length = 120
 lint.ignore = [
     "F722",  # Forward annotation false positive from jaxtyping
     "F821",  # Forward annotation false positive from jaxtyping
+]
+
+[dependency-groups]
+scene = [
+    "pyvista[all]>=0.47.0",
+    "torchio>=0.21.0",
+    "viser>=1.0.0",
+    "vtk>=9.6.0",
 ]
