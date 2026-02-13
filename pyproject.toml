@@ -6,27 +6,31 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "jaxtyping>=0.3.0",
-    "matplotlib",
+    "matplotlib>=3.0.0",
     "roma>=1.5.6",
-    "torch>=2.4",
+    "torch>=2.4.0",
     "torchio>=0.21.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "prek",
+]
+scene = [
+    "pyvista[all]>=0.47.0",
+    "viser>=1.0.0",
+    "vtk>=9.6.0",
+]
+
 [build-system]
-requires = ["uv_build>=0.9.30,<0.10.0"]
+requires = ["uv_build>=0.10.2,<0.11.0"]
 build-backend = "uv_build"
 
 [tool.ruff]
 line-length = 120
-lint.ignore = [
+
+[tool.ruff.lint]
+ignore = [
     "F722",  # Forward annotation false positive from jaxtyping
     "F821",  # Forward annotation false positive from jaxtyping
-]
-
-[dependency-groups]
-scene = [
-    "pyvista[all]>=0.47.0",
-    "torchio>=0.21.0",
-    "viser>=1.0.0",
-    "vtk>=9.6.0",
 ]
