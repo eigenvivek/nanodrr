@@ -13,12 +13,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "prek",
-]
 scene = [
     "pyvista[all]>=0.47.0",
-    "viser>=1.0.0",
     "vtk>=9.6.0",
 ]
 
@@ -33,4 +29,9 @@ line-length = 120
 ignore = [
     "F722",  # Forward annotation false positive from jaxtyping
     "F821",  # Forward annotation false positive from jaxtyping
+]
+
+[dependency-groups]
+dev = [
+    "prek>=0.3.2",
 ]
