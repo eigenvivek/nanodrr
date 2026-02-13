@@ -1,6 +1,7 @@
 import numpy as np
 import pyvista as pv
 from jaxtyping import Float
+from trimesh import Trimesh
 
 from ..data import Subject
 
@@ -21,7 +22,7 @@ def surface_nets(
     data: Float[np.ndarray, "W H D"],
     affine: Float[np.ndarray, "4 4"],
     verbose: bool,
-) -> pv.PolyData:
+) -> Trimesh:
 
     grid = pv.ImageData(dimensions=data.shape, spacing=(1, 1, 1), origin=(0, 0, 0))
     grid.point_data["values"] = data.flatten(order="F")
@@ -32,4 +33,4 @@ def surface_nets(
     if np.linalg.det(affine) < 0:
         mesh = mesh.flip_faces(progress_bar=verbose)
 
-    return mesh
+    return pv.to_trimesh(mesh, triangulate=True)
