@@ -1,3 +1,3 @@
-from .surface import label_to_mesh
+from .scene import visualize_scene
 
-__all__ = ["label_to_mesh"]
+__all__ = ["visualize_scene"]
