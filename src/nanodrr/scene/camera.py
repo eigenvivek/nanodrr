@@ -13,12 +13,12 @@ from ..plot import plot_drr
 
 
 def make_cameras(
-    imgs: Float[torch.Tensor, "B C H W"],
     k_inv: Float[torch.Tensor, "B 3 3"],
     rt_inv: Float[torch.Tensor, "B 4 4"],
     sdd: Float[torch.Tensor, "B"],
     height: int,
     width: int,
+    img: Float[torch.Tensor, "B C H W"] | None = None,
     frustum_size: float = 0.125,
 ) -> list[dict]:
     B = rt_inv.shape[0]
@@ -32,8 +32,8 @@ def make_cameras(
 
     return [
         {
-            "detector": _detector(tgt[b]),
-            "texture": _texture(imgs[b : b + 1]),
+            "detector": _detector(tgt[b]) if img is not None else None,
+            "texture": _texture(img[b : b + 1]) if img is not None else None,
             "camera": _frustum(src[b], tgt[b], frustum_size),
             "principal_ray": pv.Line(src[b], tgt[b].mean(axis=(0, 1))),
         }

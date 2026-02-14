@@ -15,6 +15,7 @@ def visualize_scene(
     sdd: Float[torch.Tensor, "B"],
     height: int,
     width: int,
+    render_imgs: bool = True,
     single_channel: bool = False,
     culling: str | None = "back",
     verbose: bool = False,
@@ -29,6 +30,7 @@ def visualize_scene(
         sdd: Source-to-detector distances.
         height: Detector height in pixels.
         width: Detector width in pixels.
+        render_imgs: If True, render DRRs before plotting
         single_channel: If True, sum channels before texturing the detector.
         culling: Face culling mode passed to each mesh (e.g. ``"back"``).
         verbose: If True, print progress during mesh extraction.
@@ -41,18 +43,20 @@ def visualize_scene(
     mesh = label_to_mesh(subject, verbose)
 
     # Render the DRR
-    img = render(subject, k_inv, rt_inv, sdd, height, width, **kwargs)
-    if single_channel:
-        img = img.sum(dim=1, keepdim=True)
+    img = None
+    if render_imgs:
+        img = render(subject, k_inv, rt_inv, sdd, height, width, **kwargs)
+        img = img.sum(dim=1, keepdim=True) if single_channel else img
 
     # Make the cameras
-    cameras = make_cameras(img, k_inv, rt_inv, sdd, height, width)
+    cameras = make_cameras(k_inv, rt_inv, sdd, height, width, img)
 
     # Make the scene
     pl = pv.Plotter()
     pl.add_mesh(mesh)
     for cam in cameras:
-        pl.add_mesh(cam["detector"], texture=cam["texture"], lighting=False, culling=culling)
+        if render_imgs:
+            pl.add_mesh(cam["detector"], texture=cam["texture"], lighting=False, culling=culling)
         pl.add_mesh(cam["camera"], show_edges=True, line_width=3, culling=culling)
         pl.add_mesh(cam["principal_ray"], line_width=3, color="lime", culling=culling)
     return pl
