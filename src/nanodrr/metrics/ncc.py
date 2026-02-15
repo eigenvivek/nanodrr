@@ -8,7 +8,7 @@ from torch import Tensor
 class NormalizedCrossCorrelation2d(torch.nn.Module):
     """Compute Normalized Cross Correlation between two batches of images."""
 
-    def __init__(self, patch_size: int | None = None, eps: float = 1e-4):
+    def __init__(self, patch_size: int | None = None, eps: float = 1e-7):
         super().__init__()
         self.patch_size = patch_size
         self.eps = eps

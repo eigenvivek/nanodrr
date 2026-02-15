@@ -10,7 +10,7 @@ class DoubleGeodesicSE3(torch.nn.Module):
     def __init__(
         self,
         sdd: float,
-        eps: float = 1e-4,
+        eps: float = 1e-7,
     ):
         super().__init__()
         self.sdr = sdd / 2
@@ -35,11 +35,11 @@ class DoubleGeodesicSE3(torch.nn.Module):
         r1: Float[Tensor, "B 3 3"],
         r2: Float[Tensor, "B 3 3"],
     ) -> Float[Tensor, "B"]:
-        return self.sdr * rotmat_geodesic_distance(r1, r2)
+        return self.sdr * rotmat_geodesic_distance(r1, r2, clamping=1.0 - self.eps)
 
     def _xyz_geodesic(
         self,
         t1: Float[Tensor, "B 3"],
         t2: Float[Tensor, "B 3"],
     ) -> Float[Tensor, "B"]:
-        return (t1 - t2).norm(dim=-1)
+        return (t1 - t2).square().sum(dim=-1).clamp(min=self.eps).sqrt()
