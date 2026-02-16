@@ -1,26 +1,42 @@
 site_name: nanodrr
 site_url: https://vivekg.dev/nanodrr
+docs_dir: .
 
 theme:
   name: material
+  features:
+    - navigation.expand
 
 plugins:
-- search
-- gen-files:
-    scripts:
-    - scripts/gen_ref_pages.py
-- literate-nav:
-    nav_file: SUMMARY.md
-- section-index
-- mkdocstrings:
-    handlers:
-      python:
-        paths: [src]
-        options:
-          show_source: true
-          show_root_heading: true
-          members_order: source
+  - same-dir
+  - search
+  - gen-files:
+      scripts:
+        - scripts/gen_ref_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - section-index
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: true
+            show_root_heading: true
+            members_order: source
+  - callouts
+  - mkdocs-jupyter:
+      include: ["tutorials/*.ipynb"]
+      execute: false
+
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
 
 nav:
-  - Home: index.md
+  - Home: README.md
+  - Tutorials:
+    - Getting Started: tutorials/demo.ipynb
   - API: reference/
