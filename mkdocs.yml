@@ -52,7 +52,7 @@ plugins:
   - callouts
   - mkdocs-jupyter:
       include: ["tutorials/*.ipynb"]
-      execute: false
+      execute: true
 
 markdown_extensions:
   - admonition
