@@ -36,6 +36,7 @@ def make_k_inv(
         width: Detector width in pixels.
         dtype: Optional tensor dtype.
         device: Optional tensor device.
+    
     Returns:
         (1, 3, 3) inverse intrinsic matrix.
     """

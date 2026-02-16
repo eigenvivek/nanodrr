@@ -40,17 +40,20 @@ def convert(
 
     Args:
         rotation: Rotation parameters, shape depends on parameterization:
-            - EULER:                (B, 3) Euler angles
-            - QUATERNION:           (B, 4) unit quaternion (XYZW)
-            - QUATERNION_ADJUGATE:  (B, 10) upper-tri of 4x4 symmetric matrix
-            - ROTATION_9D:          (B, 9) flattened 3x3 matrix (projected via SVD)
-            - SE3_LOG:              (B, 3) rotation part of se(3) logarithm
+
+            - `EULER`:                (B, 3) Euler angles
+            - `QUATERNION`:           (B, 4) unit quaternion (XYZW)
+            - `QUATERNION_ADJUGATE`:  (B, 10) upper-tri of 4x4 symmetric matrix
+            - `ROTATION_9D`:          (B, 9) flattened 3x3 matrix (projected via SVD)
+            - `SE3_LOG`:              (B, 3) rotation part of se(3) logarithm
         translation: Camera center in world coordinates, shape (B, 3).
-            For SE3_LOG this is the log-translation (coupled via the V-matrix).
+            For `SE3_LOG` this is the log-translation (coupled via the V-matrix).
         parameterization: Which rotation representation to use.
-        convention: Required for EULER only. 3-letter string from {X, Y, Z},
-            e.g. "XYZ".
-        degrees: If True and parameterization is EULER, interpret angles in degrees.
+        convention: Required for EULER only. 3-letter string from {X, Y, Z}, e.g., "XYZ".
+        degrees: If `True` and parameterization is EULER, interpret angles in degrees.
+        isocenter: If provided, the rotation is applied about this point
+            instead of the world origin. The resulting translation is adjusted
+            so that the camera orbits around `isocenter`.
 
     Returns:
         Batched SE(3) matrices of shape (B, 4, 4).

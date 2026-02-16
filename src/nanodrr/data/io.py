@@ -8,10 +8,10 @@ from .preprocess import hu_to_mu
 
 
 class Subject(torch.nn.Module):
-    """CT volume and (optional) labelmap compatible with [`torch.nn.functional.grid_sample`](https://pytorch.org/docs/stable/generated/torch.nn.functional.grid_sample.html).
-
+    """CT volume and (optional) labelmap compatible with [`grid_sample`](https://pytorch.org/docs/stable/generated/torch.nn.functional.grid_sample.html).
+    
     Fuses all spatial transforms for sampling (world → voxel → grid) so downstream
-    rendering only needs cheap matmuls.
+    rendering only needs a single matmul.
     """
 
     def __init__(
