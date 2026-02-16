@@ -1,11 +1,22 @@
 site_name: nanodrr
 site_url: https://vivekg.dev/nanodrr
 docs_dir: .
+repo_url: https://github.com/eigenvivek/nanodrr
+repo_name: nanodrr
 
 theme:
   name: material
   features:
     - navigation.sections
+  palette:
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
 
 plugins:
   - same-dir
@@ -28,7 +39,6 @@ plugins:
   - mkdocs-jupyter:
       include: ["tutorials/*.ipynb"]
       execute: false
-
 
 markdown_extensions:
   - admonition
