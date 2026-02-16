@@ -30,11 +30,21 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [src]
           options:
-            show_source: true
             show_root_heading: true
+            show_if_no_docstring: false
+            inherited_members: true
+            show_bases: false
             members_order: source
+            separate_signature: true
+            unwrap_annotated: true
+            merge_init_into_class: true
+            docstring_section_style: spacy
+            signature_crossrefs: true
+            show_signature_annotations: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            line_length: 80
   - callouts
   - mkdocs-jupyter:
       include: ["tutorials/*.ipynb"]
@@ -49,4 +59,4 @@ nav:
   - Home: README.md
   - Tutorials:
     - Getting Started: tutorials/demo.ipynb
-  - API: reference/
+  - API Reference: reference/
