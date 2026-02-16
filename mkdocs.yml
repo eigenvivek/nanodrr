@@ -22,12 +22,18 @@ theme:
       icon: material/weather-sunny
       name: Switch to dark mode
 
+nav:
+  - Home: README.md
+  - Tutorials:
+    - Getting Started: docs/tutorials/demo.ipynb
+  - API Reference: reference/
+
 plugins:
   - same-dir
   - search
   - gen-files:
       scripts:
-        - scripts/gen_ref_pages.py
+        - docs/scripts/gen_ref_pages.py
   - literate-nav:
       nav_file: SUMMARY.md
   - section-index
@@ -51,7 +57,7 @@ plugins:
             line_length: 80
   - callouts
   - mkdocs-jupyter:
-      include: ["tutorials/*.ipynb"]
+      include: ["docs/tutorials/*.ipynb"]
       execute: true
 
 markdown_extensions:
