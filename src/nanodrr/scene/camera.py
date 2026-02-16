@@ -21,6 +21,31 @@ def make_cameras(
     img: Float[torch.Tensor, "B C H W"] | None = None,
     frustum_size: float = 0.125,
 ) -> list[dict]:
+    """Build PyVista meshes for visualizing cameras in a 3D scene.
+
+    For each camera in the batch, computes the source (X-ray point source)
+    and detector plane positions in world coordinates, then constructs
+    meshes for the frustum, principal ray, and optionally the detector
+    surface with a projected image texture.
+
+    Args:
+        k_inv: Inverse intrinsic camera matrix.
+        rt_inv: Inverse extrinsic (camera-to-world) matrix.
+        sdd: Source-to-detector distance.
+        height: Detector image height in pixels.
+        width: Detector image width in pixels.
+        img: Optional rendered or target image to texture onto the detector
+            plane. If `None`, detector and texture entries are omitted.
+        frustum_size: Scale factor for the camera frustum wireframe.
+
+    Returns:
+        List of dicts, one per camera in the batch. Each dict contains:
+
+            - `"detector"`: PyVista mesh of the detector plane, or `None`.
+            - `"texture"`: PyVista texture from `img`, or `None`.
+            - `"camera"`: PyVista mesh of the camera frustum wireframe.
+            - `"principal_ray"`: PyVista `Line` from source to detector center.
+    """
     B = rt_inv.shape[0]
     device, dtype = rt_inv.device, rt_inv.dtype
 
