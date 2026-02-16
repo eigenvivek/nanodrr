@@ -5,7 +5,7 @@ docs_dir: .
 theme:
   name: material
   features:
-    - navigation.expand
+    - navigation.sections
 
 plugins:
   - same-dir
