@@ -28,12 +28,14 @@ def make_k_inv(
 
     Args:
         sdd: Source-to-detector distance (mm).
-        delx, dely: Pixel spacing in x and y (mm/px).
-        x0, y0: Principal-point offset from detector centre (mm).
-        height, width: Detector dimensions in pixels.
+        delx: Pixel spacing in x (mm/px).
+        dely: Pixel spacing in y (mm/px).
+        x0: Principal-point offset from detector centre in x (mm).
+        y0: Principal-point offset from detector centre in y (mm).
+        height: Detector height in pixels.
+        width: Detector width in pixels.
         dtype: Optional tensor dtype.
         device: Optional tensor device.
-
     Returns:
         (1, 3, 3) inverse intrinsic matrix.
     """
