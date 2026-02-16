@@ -65,8 +65,5 @@ markdown_extensions:
   - pymdownx.details
   - pymdownx.superfences
 
-nav:
-  - Home: README.md
-  - Tutorials:
-    - Getting Started: tutorials/demo.ipynb
-  - API Reference: reference/
+extra_css:
+  - docs/stylesheets/extra.css
