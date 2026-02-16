@@ -1,5 +1,7 @@
 # nanodrr
 
+[![ci](https://github.com/eigenvivek/nanodrr/actions/workflows/ci.yml/badge.svg)](https://github.com/eigenvivek/nanodrr/actions/workflows/ci.yml)
+
 A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the following improvements:
 
 - Optimized, pure PyTorch implementation (**~5× faster than `DiffDRR` at baseline**)
