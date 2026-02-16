@@ -7,6 +7,29 @@ from ..data import Subject
 
 
 class DRR(torch.nn.Module):
+    """Digitally reconstructed radiograph (DRR) generator module.
+
+    Encapsulates the intrinsic camera parameters needed to cast rays from an
+    X-ray point source through a 3D volume. Once initialized, call `forward`
+    with a `Subject` and extrinsic pose to produce a synthetic radiograph.
+
+    The intrinsic parameters (`k_inv`, `sdd`, `height`, `width`) are stored as
+    buffers or attributes so they travel with the module across devices and are
+    included in `state_dict`.
+
+    Attributes:
+        _intrinsic_params: Set of parameter names that define the camera
+            intrinsics.
+
+    Args:
+        k_inv: Inverse intrinsic camera matrix. Maps pixel coordinates to
+            camera-space ray directions.
+        sdd: Source-to-detector distance, i.e., the distance from the X-ray
+            point source to the imaging plane.
+        height: Output image height in pixels.
+        width: Output image width in pixels.
+    """
+
     _intrinsic_params = {"k_inv", "sdd", "height", "width"}
 
     def __init__(

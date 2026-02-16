@@ -7,6 +7,23 @@ from ..geometry import convert, transform_point
 
 
 class Registration(torch.nn.Module):
+    """Differentiable 2D/3D registration module.
+
+    Optimizes an SE(3) pose to align a digitally reconstructed radiograph (DRR)
+    with a target X-ray image. The intrinsic camera parameters and initial
+    extrinsic pose are fixed at construction; learnable parameters (e.g.,
+    rotation and translation offsets) are added by subclasses or after
+    initialization.
+
+    Args:
+        subject: The volume to render DRRs from during optimization.
+        rt_inv: Initial inverse extrinsic (camera-to-world) matrix.
+        k_inv: Inverse intrinsic camera matrix.
+        sdd: Source-to-detector distance.
+        height: Output image height in pixels.
+        width: Output image width in pixels.
+        eps: Small constant for numerical stability.
+    """
     def __init__(
         self,
         subject: Subject,

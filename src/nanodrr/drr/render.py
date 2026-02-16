@@ -20,10 +20,36 @@ def render(
 ) -> Float[torch.Tensor, "B C H W"]:
     """Differentiable ray marching through a volume and optional labelmap.
 
-    Casts rays from an X-ray source through a 3D volume (`subject.image`) and
+    Casts rays from an X-ray source through a 3D volume (`Subject.image`) and
     integrates sampled intensities along each ray to produce a synthetic
-    radiograph. When the subject contains a multi-class labelmap (`subject.label`),
+    radiograph. When the subject contains a multi-class labelmap (`Subject.label`),
     the integration is performed per-structure, yielding one channel per class.
+
+    Args:
+        subject: The volume to render. Must contain `Subject.image` (the 3D
+            density volume) and optionally `Subject.label` (a multi-class
+            labelmap for per-structure integration).
+        k_inv: Inverse intrinsic camera matrix. Maps pixel coordinates to
+            camera-space ray directions.
+        rt_inv: Inverse extrinsic (world-to-camera) matrix. Transforms rays
+            from camera space into world space.
+        sdd: Source-to-detector distance, i.e., the distance from the X-ray
+            point source to the imaging plane.
+        height: Output image height in pixels.
+        width: Output image width in pixels.
+        n_samples: Number of samples to take along each ray. Higher values
+            improve accuracy at the cost of memory and compute.
+        align_corners: If `True`, the voxel grid corners are aligned with the
+            volume boundaries (consistent with `torch.nn.functional.grid_sample`).
+        src: Pre-computed ray source positions in world coordinates. If `None`,
+            computed from `k_inv` and `rt_inv`.
+        tgt: Pre-computed ray target positions (detector pixel locations) in
+            world coordinates. If `None`, computed from `k_inv` and `rt_inv`.
+
+    Returns:
+        Rendered synthetic radiograph. Shape is `(B, C, H, W)` where `C` is
+            the number of classes in the labelmap (or 1 if no labelmap is
+            present).
     """
     device, dtype = rt_inv.device, rt_inv.dtype
     B = rt_inv.shape[0]
