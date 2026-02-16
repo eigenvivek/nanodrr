@@ -5,6 +5,7 @@ import mkdocs_gen_files
 
 nav = mkdocs_gen_files.Nav()
 src = Path("src")
+package = "nanodrr"
 
 for path in sorted(src.rglob("*.py")):
     module_path = path.relative_to(src).with_suffix("")
@@ -19,7 +20,13 @@ for path in sorted(src.rglob("*.py")):
     elif parts[-1].startswith("_"):
         continue
 
-    nav[parts] = doc_path.as_posix()
+    # Skip the top-level package init
+    if parts == (package,):
+        continue
+
+    # Strip "nanodrr" so subpackages become first-level sections
+    nav_parts = parts[1:]
+    nav[nav_parts] = doc_path.as_posix()
 
     with mkdocs_gen_files.open(full_doc_path, "w") as fd:
         identifier = ".".join(parts)
