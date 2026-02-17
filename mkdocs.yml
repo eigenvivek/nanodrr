@@ -6,6 +6,7 @@ repo_name: nanodrr
 
 theme:
   name: material
+  favicon: docs/assets/favicon.png
   features:
     - navigation.sections
   palette:
