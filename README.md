@@ -19,7 +19,7 @@ All projective geometry is implemented internally using the standard [Hartley an
 > On `pytorch<2.9`, `torch.compile` with `bfloat16` is slower than eager due to a CUDA graph capture issue (see [Benchmarks](#benchmarks)). Use `pytorch>=2.9` (Triton ≥3.5) for best results.
 
 ```
-pip install nanodrr
+pip install "nanodrr[all]"
 ```
 
 ## Benchmarks

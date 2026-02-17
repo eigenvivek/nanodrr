@@ -17,6 +17,9 @@ scene = [
     "pyvista[all]>=0.47.0",
     "vtk>=9.6.0",
 ]
+all = [
+    "nanodrr[scene]",
+]
 
 [build-system]
 requires = ["uv_build>=0.10.2,<0.11.0"]
