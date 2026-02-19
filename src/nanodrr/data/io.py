@@ -35,7 +35,7 @@ class Subject(torch.nn.Module):
         self.register_buffer("voxel_to_grid", voxel_to_grid)
 
         if max_label is not None:
-            self.n_classes = max_label + 1
+            self.n_classes = int(max_label + 1)
         else:
             self.n_classes = int(self.label.max().item()) + 1
 
