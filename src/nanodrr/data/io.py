@@ -22,6 +22,7 @@ class Subject(torch.nn.Module):
         world_to_voxel: Float[torch.Tensor, "4 4"],
         voxel_to_grid: Float[torch.Tensor, "4 4"],
         isocenter: Float[torch.Tensor, "3"],
+        max_label: int | None = None,
     ) -> None:
         super().__init__()
         self.register_buffer("image", imagedata)
@@ -33,7 +34,10 @@ class Subject(torch.nn.Module):
         self.register_buffer("world_to_voxel", world_to_voxel)
         self.register_buffer("voxel_to_grid", voxel_to_grid)
 
-        self.n_classes = int(self.label.max().item()) + 1
+        if max_label is not None:
+            self.n_classes = int(max_label + 1)
+        else:
+            self.n_classes = int(self.label.max().item()) + 1
 
     @classmethod
     def from_filepath(
@@ -44,6 +48,7 @@ class Subject(torch.nn.Module):
         mu_water: float = 0.0192,
         mu_bone: float = 0.0573,
         hu_bone: float = 1000.0,
+        max_label: int | None = None,
     ) -> "Subject":
         """Load a subject from NIfTI (or any TorchIO-supported) file paths.
 
@@ -52,10 +57,12 @@ class Subject(torch.nn.Module):
             labelpath: Optional path to a label map.
             convert_to_mu: Convert Hounsfield units to linear attenuation.
             mu_water: Linear attenuation coefficient of water (mm⁻¹).
+            max_label: Override the maximum label index. If provided, ``n_classes``
+                is set to ``max_label + 1`` instead of being inferred from the data.
         """
         image = ScalarImage(imagepath)
         label = LabelMap(labelpath) if labelpath is not None else None
-        return cls.from_images(image, label, convert_to_mu, mu_water, mu_bone, hu_bone)
+        return cls.from_images(image, label, convert_to_mu, mu_water, mu_bone, hu_bone, max_label)
 
     @classmethod
     def from_images(
@@ -66,6 +73,7 @@ class Subject(torch.nn.Module):
         mu_water: float = 0.0192,
         mu_bone: float = 0.0573,
         hu_bone: float = 1000.0,
+        max_label: int | None = None,
     ) -> "Subject":
         """Construct a subject from TorchIO image objects.
 
@@ -74,6 +82,8 @@ class Subject(torch.nn.Module):
             label: Optional segmentation as a ``LabelMap``.
             convert_to_mu: Convert Hounsfield units to linear attenuation.
             mu_water: Linear attenuation coefficient of water (mm⁻¹).
+            max_label: Override the maximum label index. If provided, ``n_classes``
+                is set to ``max_label + 1`` instead of being inferred from the data.
         """
         # Affine: invert in float64 for numerical accuracy, then downcast
         voxel_to_world_f64 = torch.from_numpy(image.affine).to(torch.float64)
@@ -101,6 +111,7 @@ class Subject(torch.nn.Module):
             world_to_voxel,
             voxel_to_grid,
             isocenter,
+            max_label,
         )
 
     @staticmethod
