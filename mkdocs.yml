@@ -65,6 +65,14 @@ markdown_extensions:
   - admonition
   - pymdownx.details
   - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - https://unpkg.com/katex@0/dist/katex.min.js
+  - https://unpkg.com/katex@0/dist/contrib/auto-render.min.js
+  - docs/javascripts/katex.js
 
 extra_css:
+  - https://unpkg.com/katex@0/dist/katex.min.css
   - docs/stylesheets/extra.css
