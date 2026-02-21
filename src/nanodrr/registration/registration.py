@@ -3,17 +3,15 @@ from jaxtyping import Float
 
 from ..data import Subject
 from ..drr import render
-from ..geometry import convert, transform_point
+from ..geometry import convert
 
 
 class Registration(torch.nn.Module):
     """Differentiable 2D/3D registration module.
 
-    Optimizes an SE(3) pose to align a digitally reconstructed radiograph (DRR)
-    with a target X-ray image. The intrinsic camera parameters and initial
-    extrinsic pose are fixed at construction; learnable parameters (e.g.,
-    rotation and translation offsets) are added by subclasses or after
-    initialization.
+    Optimize poses in SE(3) by aligning rendered X-rays with real target
+    X-ray images. Initial intrinsic and extrinsic matrices are fixed at
+    construction. Optimizable parameters are parameterized as perturbations.
 
     Args:
         subject: The volume to render DRRs from during optimization.
@@ -24,12 +22,13 @@ class Registration(torch.nn.Module):
         width: Output image width in pixels.
         eps: Small constant for numerical stability.
     """
+
     def __init__(
         self,
         subject: Subject,
-        rt_inv: Float[torch.Tensor, "1 4 4"],
-        k_inv: Float[torch.Tensor, "1 3 3"],
-        sdd: Float[torch.Tensor, "1"],
+        rt_inv: Float[torch.Tensor, "B 4 4"],
+        k_inv: Float[torch.Tensor, "B 3 3"],
+        sdd: Float[torch.Tensor, "B"],
         height: int,
         width: int,
         eps: float = 1e-8,
@@ -42,28 +41,21 @@ class Registration(torch.nn.Module):
         self.height = height
         self.width = width
 
-        # Rotation pivot: isocenter projected into camera frame
-        c = transform_point(rt_inv.inverse(), subject.isocenter[None])
-        self.pivot = torch.eye(4, device=c.device, dtype=c.dtype)[None]
-        self.pivot_inv = torch.eye(4, device=c.device, dtype=c.dtype)[None]
-        self.pivot[:, :3, 3] = c
-        self.pivot_inv[:, :3, 3] = -c
+        # Initialize the perturbations
+        B = len(self.rt_inv)
+        self._rot = torch.nn.Parameter(eps * torch.randn(B, 3, device=c.device))
+        self._xyz = torch.nn.Parameter(eps * torch.randn(B, 3, device=c.device))
 
-        # Parameterization of the perturbation
-        self._rot = torch.nn.Parameter(eps * torch.randn(1, 3, device=c.device))
-        self._xyz = torch.nn.Parameter(eps * torch.randn(1, 3, device=c.device))
-
-    def forward(self) -> Float[torch.Tensor, "1 C H W"]:
+    def forward(self) -> Float[torch.Tensor, "B C H W"]:
         return render(
             self.subject,
             self.k_inv,
-            self.rt_inv @ self.pose,
+            self.pose @ self.rt_inv,
             self.sdd,
             self.height,
             self.width,
         )
 
     @property
-    def pose(self) -> Float[torch.Tensor, "1 4 4"]:
-        T = convert(self._rot, self._xyz, "so3_log")
-        return self.pivot @ T @ self.pivot_inv
+    def pose(self) -> Float[torch.Tensor, "B 4 4"]:
+        return convert(self._rot, self._xyz, "so3_log")
