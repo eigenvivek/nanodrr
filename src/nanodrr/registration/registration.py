@@ -9,11 +9,9 @@ from ..geometry import convert
 class Registration(torch.nn.Module):
     """Differentiable 2D/3D registration module.
 
-    Optimizes an SE(3) pose to align a digitally reconstructed radiograph (DRR)
-    with a target X-ray image. The intrinsic camera parameters and initial
-    extrinsic pose are fixed at construction; learnable parameters (e.g.,
-    rotation and translation offsets) are added by subclasses or after
-    initialization.
+    Optimize a pose in SE(3) by aligning a rendered X-ray with a real target
+    X-ray image. The initial intrinsic and extrinsic matrices are fixed at
+    construction. Optimizable parameters are parameterized as perturbations.
 
     Args:
         subject: The volume to render DRRs from during optimization.
