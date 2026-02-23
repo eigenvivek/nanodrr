@@ -2388,7 +2388,7 @@ wheels = [
 
 [[package]]
 name = "nanodrr"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "jaxtyping", version = "0.3.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -3518,7 +3518,7 @@ wheels = [
 
 [[package]]
 name = "pyvista"
-version = "0.47.0"
+version = "0.47.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cyclopts" },
@@ -3531,9 +3531,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "vtk" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b2/0e/8bddb1cc2fe44d1cae33c867d63810e11dfd305af2c066ec915490d2d5ed/pyvista-0.47.0.tar.gz", hash = "sha256:3956348e3e1529ef51bb1d08ceb102d2bf1972bc52fe9545a1c53c2a35406025", size = 2463052, upload-time = "2026-02-08T20:21:02.727Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0e/ab/4813c71ac41b6691f16f658a9432ffe6d536a1f55d79c193c5c073eb370e/pyvista-0.47.1.tar.gz", hash = "sha256:2d517aeb0e76ea29d7a21ad95237c03ea0b45257d87d0bd88987b49965d1f1a3", size = 2463080, upload-time = "2026-02-23T07:07:11.324Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/c1/c8efb5c0696fa3f7f7c424234dc08fa1e0ecc2292c53500090d93c81a648/pyvista-0.47.0-py3-none-any.whl", hash = "sha256:35d9b003d3bfac709da5b76dd264919b6847c469be08283d3295833f6a7ea657", size = 2508448, upload-time = "2026-02-08T20:21:00.614Z" },
+    { url = "https://files.pythonhosted.org/packages/84/52/a98dea948d9782b80e8e60804097fee7f7bd8fed92c9d4f0c657e4c3a6f8/pyvista-0.47.1-py3-none-any.whl", hash = "sha256:eb8cee6b6246c41f1a9d2d07e662ec7d0192ea5cf585d64ebf1266774258df59", size = 2508384, upload-time = "2026-02-23T07:07:09.069Z" },
 ]
 
 [package.optional-dependencies]
@@ -4454,14 +4454,14 @@ wheels = [
 
 [[package]]
 name = "trame-vtk"
-version = "2.11.1"
+version = "2.10.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "trame-client" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/58/c08b8e761861f186e69894a915f30f3a361d539ad70d4cb27efe6a71b41e/trame_vtk-2.11.1.tar.gz", hash = "sha256:db1f316ba69c29b9292775c3f73567604aa366742c06030d8507d5bd56424492", size = 518636, upload-time = "2026-02-05T17:06:18.845Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/73/d764053dc89559980b1009405f643d3962b086b3233e8d0a58568d395f6a/trame_vtk-2.10.2.tar.gz", hash = "sha256:0c298aafb117cb1d462eef3b6b399abff2e3ffb8ed5bd0bc8c71d1c581649392", size = 759625, upload-time = "2026-01-08T19:07:42.522Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/86/e8/0c27129b28791eb0ece6a6fc1fc33100dabbf98d1cc209225a6a3f2f349f/trame_vtk-2.11.1-py3-none-any.whl", hash = "sha256:871d7fdd98731083ba958977a1bdf0a09f39f32051e13fa1032c5305e6927e88", size = 539844, upload-time = "2026-02-05T17:06:17.49Z" },
+    { url = "https://files.pythonhosted.org/packages/50/d2/1cf0bc85ddddc49b371f108bf27d1719d5da7e2ea378e434a116a3e70048/trame_vtk-2.10.2-py3-none-any.whl", hash = "sha256:7ef4d7d167424e4a19f63648ff66f5986697ef0184f70364a21982b95b011a29", size = 781698, upload-time = "2026-01-08T19:07:40.953Z" },
 ]
 
 [[package]]
