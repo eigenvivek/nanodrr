@@ -33,10 +33,9 @@ def convert(
     degrees: bool = True,
     isocenter: Float[torch.Tensor, "3"] | None = None,
 ) -> Float[torch.Tensor, "B 4 4"]:
-    """Convert a rotation parameterization + camera center into a (B, 4, 4) SE(3) matrix.
-
-    The translation is interpreted as the camera center in world coordinates,
-    i.e. the resulting matrix stores t = R @ translation.
+    """Convert a rotation parameterization + camera center into a batch of camera
+    poses in SE(3). The `translation` is interpreted as the camera center in world
+    coordinates, i.e., the resulting matrix stores `t = R @ translation`.
 
     Args:
         rotation: Rotation parameters, shape depends on parameterization:

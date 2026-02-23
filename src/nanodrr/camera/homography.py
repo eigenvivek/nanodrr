@@ -12,7 +12,11 @@ def resample(
 
     Each target pixel \(p'\) is mapped back to a source pixel via the homography
 
-    \[ p = H p' = K_{\text{old}} K_{\text{new}}^{-1} p' \]
+    $$
+    \begin{equation}
+        p = \mathbf H p' = \mathbf K_{\mathrm{old}}^{\phantom{-1}} \mathbf K_{\mathrm{new}}^{-1} p'
+    \end{equation}
+    $$
 
     and bilinearly interpolated. Out-of-bounds regions are filled with zeros.
 

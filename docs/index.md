@@ -4,7 +4,7 @@ icon: lucide/rocket
 
 # nanodrr
 
-[![docs](https://github.com/eigenvivek/nanodrr/actions/workflows/ci.yml/badge.svg)](https://github.com/eigenvivek/nanodrr/actions/workflows/ci.yml)
+[![docs](https://github.com/eigenvivek/nanodrr/actions/workflows/docs.yml/badge.svg)](https://github.com/eigenvivek/nanodrr/actions/workflows/docs.yml)
 
 A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the following improvements:
 

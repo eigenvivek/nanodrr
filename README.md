@@ -1,6 +1,6 @@
 # nanodrr
 
-[![ci](https://github.com/eigenvivek/nanodrr/actions/workflows/ci.yml/badge.svg)](https://github.com/eigenvivek/nanodrr/actions/workflows/ci.yml)
+[![docs](https://github.com/eigenvivek/nanodrr/actions/workflows/docs.yml/badge.svg)](https://github.com/eigenvivek/nanodrr/actions/workflows/docs.yml)
 
 A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the following improvements:
 
@@ -18,8 +18,14 @@ All projective geometry is implemented internally using the standard [Hartley an
 >
 > On `pytorch<2.9`, `torch.compile` with `bfloat16` is slower than eager due to a CUDA graph capture issue (see [Benchmarks](#benchmarks)). Use `pytorch>=2.9` (Triton ≥3.5) for best results.
 
+To strictly install the renderer:
 ```
-pip install "nanodrr[all]"
+pip install nanodrr
+```
+
+To install the optional [3D visualization module](api/scene.md):
+```
+pip install "nanodrr[scene]"
 ```
 
 ## Benchmarks
