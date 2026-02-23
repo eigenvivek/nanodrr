@@ -20,6 +20,8 @@ jobs:
         with:
           python-version: 3.x
       - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - run: uv run --group docs jupyter nbconvert --to markdown tutorials/*.ipynb --output-dir docs/tutorials/
       - run: uv run --group docs zensical build --clean
       - uses: actions/upload-pages-artifact@v4
