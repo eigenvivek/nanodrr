@@ -5,6 +5,7 @@ site_author = "Vivek Gopalakrishnan"
 site_url = "https://www.vivekg.dev/nanodrr"
 repo_url = "https://github.com/eigenvivek/nanodrr"
 repo_name = "eigenvivek/nanodrr"
+edit_uri = "edit/main/docs/"
 copyright = "Copyright &copy; 2026 Vivek Gopalakrishnan"
 
 extra_javascript = [
