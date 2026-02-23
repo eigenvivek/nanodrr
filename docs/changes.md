@@ -101,8 +101,14 @@ def _make_voxel_to_grid(shape: torch.Size) -> Float[torch.Tensor, "4 4"]:
     return mat
 ```
 
-This lets us fuse many of the coordinate transforms needed for rendering into a single $4\times4$ matrix (`world → voxel → grid sample`), where `world → voxel` is given by the inverse affine matrix (`world_to_voxel`).
+Note that this matrix is constant for every subject (voxel dimensions don't change). This lets us fuse many of the coordinate transforms needed for rendering into a single $4\times4$ matrix (`world → voxel → grid sample`), where `world → voxel` is given by the inverse affine matrix (`world_to_voxel`).
 
 ## Traditional camera geometry
 
 All projective geometry is implemented internally using the standard [Hartley and Zisserman](https://www.cambridge.org/core/books/multiple-view-geometry-in-computer-vision/0B6F289C78B2B23F596CAA76D3D43F7A) pinhole camera formulation (see the documentation for how we handle [intrinsics](api/camera.md#intrinsics) and [extrinsics](api/camera.md#extrinsics)).
+
+## Miscellaneous
+
+- `nanodrr` works with `torch.compile` and automatic mixed precision
+- Parameters and returns are extensively annotated
+    - Tensor types and shapes are annotated with `jaxtyping`
