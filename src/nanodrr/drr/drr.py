@@ -1,7 +1,7 @@
 import torch
 from jaxtyping import Float
 
-from .render import render, _make_tgt
+from .renderer import render, _make_tgt
 from ..camera import make_k_inv
 from ..data import Subject
 

@@ -7,7 +7,7 @@ import torch
 from jaxtyping import Float
 from PIL import Image
 
-from ..drr.render import _make_tgt
+from ..drr.renderer import _make_tgt
 from ..geometry import transform_point
 from ..plot import plot_drr
 
