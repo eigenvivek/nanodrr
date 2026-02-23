@@ -10,7 +10,7 @@ from IPython.display import display as ipython_display
 from jaxtyping import Bool, Float
 from tqdm import tqdm
 
-from .plot import plot_drr
+from .imshow import plot_drr
 
 
 def animate(
