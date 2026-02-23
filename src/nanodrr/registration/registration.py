@@ -43,8 +43,8 @@ class Registration(torch.nn.Module):
 
         # Initialize the perturbations
         B = len(self.rt_inv)
-        self._rot = torch.nn.Parameter(eps * torch.randn(B, 3, device=c.device))
-        self._xyz = torch.nn.Parameter(eps * torch.randn(B, 3, device=c.device))
+        self._rot = torch.nn.Parameter(eps * torch.randn(B, 3, device=self.sdd.device))
+        self._xyz = torch.nn.Parameter(eps * torch.randn(B, 3, device=self.sdd.device))
 
     def forward(self) -> Float[torch.Tensor, "B C H W"]:
         return render(
