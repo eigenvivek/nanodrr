@@ -5,6 +5,7 @@ icon: lucide/rocket
 # nanodrr
 
 [![docs](https://github.com/eigenvivek/nanodrr/actions/workflows/docs.yml/badge.svg)](https://github.com/eigenvivek/nanodrr/actions/workflows/docs.yml)
+[![pypi](https://img.shields.io/pypi/v/nanodrr?label=PyPI%20version&logo=python&logoColor=white)](https://pypi.org/project/nanodrr)
 
 A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the following improvements:
 
