@@ -7,6 +7,16 @@ repo_url = "https://github.com/eigenvivek/nanodrr"
 repo_name = "eigenvivek/nanodrr"
 copyright = "Copyright &copy; 2026 Vivek Gopalakrishnan"
 
+extra_javascript = [
+    "javascripts/katex.js",
+    "https://unpkg.com/katex@0/dist/katex.min.js",
+    "https://unpkg.com/katex@0/dist/contrib/auto-render.min.js"
+]
+
+extra_css = [
+    "https://unpkg.com/katex@0/dist/katex.min.css"
+]
+
 # Navigation: https://zensical.org/docs/setup/navigation/
 nav = [
   { "Home" = "index.md" },
