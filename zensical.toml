@@ -1,0 +1,115 @@
+[project]
+site_name = "nanodrr"
+site_description = "A highly optimized differentiable DRR generator."
+site_author = "Vivek Gopalakrishnan"
+site_url = "https://www.vivekg.dev/nanodrr"
+repo_url = "https://github.com/eigenvivek/nanodrr"
+repo_name = "eigenvivek/nanodrr"
+copyright = "Copyright &copy; 2026 Vivek Gopalakrishnan"
+
+# Navigation: https://zensical.org/docs/setup/navigation/
+nav = [
+  { "Home" = "index.md" },
+  { "Changes" = "changes.md" },
+  { "Tutorials" = [
+    { "Basic usage" = "tutorials/demo.md" },
+  ] },
+  { "API Reference" = [
+    { "camera" = "api/camera.md" },
+    { "data" = "api/data.md" },
+    { "drr" = "api/drr.md" },
+    { "geometry" = "api/geometry.md" },
+    { "metrics" = "api/metrics.md" },
+    { "plot" = "api/plot.md" },
+    { "registration" = "api/registration.md" },
+    { "scene" = "api/scene.md" },
+  ] },
+]
+
+[project.theme]
+favicon = "assets/favicon.png"
+language = "en"
+
+features = [
+    "announce.dismiss",
+    "content.action.edit",
+    # "content.action.view",
+    "content.code.annotate",
+    "content.code.copy",
+    "content.code.select",
+    "content.footnote.tooltips",
+    "content.tabs.link",
+    "content.tooltips",
+    # "header.autohide",
+    "navigation.expand",
+    "navigation.footer",
+    "navigation.indexes",
+    "navigation.instant",
+    "navigation.instant.prefetch",
+    # "navigation.instant.progress",
+    "navigation.path",
+    #"navigation.prune",
+    "navigation.sections",
+    #"navigation.tabs",
+    #"navigation.tabs.sticky",
+    "navigation.top",
+    "navigation.tracking",
+    "search.highlight",
+    # "toc.follow",
+    # "toc.integrate",
+]
+
+# Palette: https://zensical.org/docs/setup/colors/
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "black"
+accent = "orange"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "teal"
+accent = "purple"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+# Logos: https://zensical.org/docs/setup/logo-and-icons
+# Also see: https://zensical.org/docs/authoring/icons-emojis/#search
+[project.theme.icon]
+logo = "lucide/skull"
+# repo = "fontawesome/brands/github"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/eigenvivek/nanodrr"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/python"
+link = "https://pypi.org/project/nanodrr/"
+
+# ----------------------------------------------------------------------------
+# Plugins configuration
+# ----------------------------------------------------------------------------
+[project.plugins.mkdocstrings.handlers.python]
+inventories = ["https://docs.python.org/3/objects.inv"]
+paths = ["src"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "google"
+show_root_heading = true
+show_if_no_docstring = false
+inherited_members = true
+show_bases = false
+members_order = "source"
+separate_signature = true
+unwrap_annotated = true
+merge_init_into_class = true
+docstring_section_style = "spacy"
+signature_crossrefs = true
+show_signature_annotations = true
+show_symbol_type_heading = true
+show_symbol_type_toc = true
+line_length = 80
