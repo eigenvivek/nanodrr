@@ -7,30 +7,6 @@ import ultraplot as uplt
 
 uplt.rc["font.name"] = "Fira Sans"
 
-METHOD_COLORS = {
-    "nanodrr (float32)": "#2E86AB",
-    "nanodrr + compile (float32)": "#2E86AB",
-    "nanodrr (bfloat16)": "#E63946",
-    "nanodrr + compile (bfloat16)": "#E63946",
-    "DiffDRR (float32)": "#6C757D",
-}
-
-METHOD_MARKERS = {
-    "DiffDRR (float32)": "D",
-    "nanodrr (float32)": "o",
-    "nanodrr + compile (float32)": "s",
-    "nanodrr (bfloat16)": "o",
-    "nanodrr + compile (bfloat16)": "s",
-}
-
-METHOD_LINESTYLES = {
-    "nanodrr (float32)": "-",
-    "nanodrr + compile (float32)": (0, (1, 1)),
-    "nanodrr (bfloat16)": "-",
-    "nanodrr + compile (bfloat16)": (0, (1, 1)),
-    "DiffDRR (float32)": "-",
-}
-
 METHOD_ORDER = [
     "DiffDRR (float32)",
     "nanodrr (float32)",
@@ -39,9 +15,39 @@ METHOD_ORDER = [
     "nanodrr + compile (bfloat16)",
 ]
 
+COLORS = {
+    "light": {
+        "DiffDRR (float32)": "#6C757D",
+        "nanodrr (float32)": "#2E86AB",
+        "nanodrr + compile (float32)": "#2E86AB",
+        "nanodrr (bfloat16)": "#E63946",
+        "nanodrr + compile (bfloat16)": "#E63946",
+    },
+    "dark": {
+        "DiffDRR (float32)": "#ADB5BD",
+        "nanodrr (float32)": "#5BB8D4",
+        "nanodrr + compile (float32)": "#5BB8D4",
+        "nanodrr (bfloat16)": "#FF6B74",
+        "nanodrr + compile (bfloat16)": "#FF6B74",
+    },
+}
+MARKERS = {
+    "DiffDRR (float32)": "D",
+    "nanodrr (float32)": "o",
+    "nanodrr + compile (float32)": "s",
+    "nanodrr (bfloat16)": "o",
+    "nanodrr + compile (bfloat16)": "s",
+}
+LINESTYLES = {
+    "DiffDRR (float32)": "-",
+    "nanodrr (float32)": "-",
+    "nanodrr + compile (float32)": (0, (1, 1)),
+    "nanodrr (bfloat16)": "-",
+    "nanodrr + compile (bfloat16)": (0, (1, 1)),
+}
+
 
 def format_label(method):
-    """Convert 'nanodrr + compile (float32)' -> 'nanodrr\n(fp32 + compile)'"""
     base = method.replace(" + compile", "").replace(" (float32)", "").replace(" (bfloat16)", "")
     dtype = "fp32" if "float32" in method else "bf16" if "bfloat16" in method else ""
     compile_str = " + compile" if "+ compile" in method else ""
@@ -49,16 +55,13 @@ def format_label(method):
 
 
 def get_values(df, method, pt_versions, col, err_col=None):
-    """Extract values and errors for a method across versions"""
     vals, errs = [], []
     for ver in pt_versions:
         row = df[(df["pytorch_version"] == ver) & (df["name"] == method)]
-        if len(row) == 1:
-            vals.append(float(row[col].iloc[0]))
-            errs.append(float(row[err_col].iloc[0]) if err_col else 0)
-        else:
-            vals.append(np.nan)
-            errs.append(0)
+        val = float(row[col].iloc[0]) if len(row) == 1 else np.nan
+        err = float(row[err_col].iloc[0]) if (len(row) == 1 and err_col) else 0
+        vals.append(val)
+        errs.append(err)
     return vals, errs
 
 
@@ -68,61 +71,65 @@ def plot(df: pd.DataFrame, output: str) -> None:
     pt_labels = [v.split("+")[0].rsplit(".", 1)[0] for v in pt_versions]
     x = np.arange(len(pt_versions))
 
-    fig, axs = uplt.subplots(ncols=2, sharex=True, sharey=False)
+    for theme in ("light", "dark"):
+        is_dark = theme == "dark"
+        colors = COLORS[theme]
 
-    # Left: FPS with error bars
-    for method in methods:
-        vals, errs = get_values(df, method, pt_versions, "fps_mean", "fps_std")
-        axs[0].errorbar(
-            x,
-            vals,
-            yerr=errs,
-            label=format_label(method),
-            color=METHOD_COLORS[method],
-            marker=METHOD_MARKERS[method],
-            linestyle=METHOD_LINESTYLES[method],
-            markersize=5,
+        fig, axs = uplt.subplots(ncols=2, sharex=True, sharey=False)
+
+        for method in methods:
+            kw = dict(color=colors[method], marker=MARKERS[method], linestyle=LINESTYLES[method], markersize=5)
+            vals, errs = get_values(df, method, pt_versions, "fps_mean", "fps_std")
+            axs[0].errorbar(x, vals, yerr=errs, label=format_label(method), **kw)
+            vals, _ = get_values(df, method, pt_versions, "peak_reserved_mb")
+            axs[1].errorbar(x, vals, **kw)
+
+        axs[0].format(
+            title="Rendering Speed (↑)",
+            ylabel="Frames per Second [FPS]",
+            xlabel="PyTorch Version",
+            xticks=x,
+            xticklabels=pt_labels,
+        )
+        axs[1].format(
+            title="GPU Memory Usage (↓)",
+            ylabel="Peak Memory Reserved [MB]",
+            xlabel="PyTorch Version",
+            xticks=x,
+            xticklabels=pt_labels,
         )
 
-    axs[0].format(
-        title="Rendering Speed (↑)",
-        ylabel="Frames per Second [FPS]",
-        xlabel="PyTorch Version",
-        xticks=x,
-        xticklabels=pt_labels,
-    )
+        legend = fig.legend(loc="b", ncols=5, frameon=True)
 
-    # Right: Memory (no labels or error bars)
-    for method in methods:
-        vals, _ = get_values(df, method, pt_versions, "peak_reserved_mb")
-        axs[1].errorbar(
-            x,
-            vals,
-            color=METHOD_COLORS[method],
-            marker=METHOD_MARKERS[method],
-            linestyle=METHOD_LINESTYLES[method],
-            markersize=5,
-        )
+        if is_dark:
+            white = "white"
+            fig.patch.set_facecolor("black")
+            for ax in axs:
+                ax.set_facecolor("black")
+                ax.title.set_color(white)
+                ax.xaxis.label.set_color(white)
+                ax.yaxis.label.set_color(white)
+                ax.tick_params(which="both", colors=white)
+                for spine in ax.spines.values():
+                    spine.set_edgecolor(white)
+                ax.minorticks_on()
+                ax.grid(which="major", color=white, linewidth=0.6, alpha=0.5)
+                ax.grid(which="minor", visible=False)
+            legend.get_frame().set_facecolor("black")
+            legend.get_frame().set_edgecolor(white)
+            for text in legend.get_texts():
+                text.set_color(white)
 
-    axs[1].format(
-        title="GPU Memory Usage (↓)",
-        ylabel="Peak Memory Reserved [MB]",
-        xlabel="PyTorch Version",
-        xticks=x,
-        xticklabels=pt_labels,
-    )
-
-    fig.legend(loc="b", ncols=5, frameon=True)
-    fig.savefig(output, dpi=300)
-    print(f"Figure saved to {output}")
+        out = str(Path(output).with_stem(Path(output).stem + "_dark")) if is_dark else output
+        fig.savefig(out, dpi=300, facecolor="black" if is_dark else None)
+        print(f"{'Dark' if is_dark else 'Light'} figure saved to {out}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Plot benchmark results.")
     parser.add_argument("--input", "-i", default=str(Path(__file__).parent / "benchmark.csv"))
-    parser.add_argument("--output", "-o", default=str(Path(__file__).parent / "benchmark.png"))
+    parser.add_argument("--output", "-o", default=str(Path(__file__).parent.parent.parent / "docs/assets/images/benchmark.png"))
     args = parser.parse_args()
-
     plot(pd.read_csv(args.input), args.output)
 
 
