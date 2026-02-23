@@ -44,6 +44,15 @@ pip install "nanodrr[scene]"
 
 > *Mean ± std. dev. of 10 runs, 100 loops each. Benchmarked by rendering 200×200 DRRs on an NVIDIA RTX 6000 Ada (48 GB) with Python 3.12. Compile represents `torch.compile(mode="reduce-overhead", fullgraph=True)`. Full experiment at [`tests/benchmark/`](tests/benchmark/).*
 
+## Docs
+
+To test the docs locally, run
+
+```
+uv run --group docs jupyter nbconvert --to markdown tutorials/*.ipynb --output-dir docs/tutorials/
+uv run --group docs zensical serve
+```
+
 ## Roadmap
 
 - [x] Implement a fully optimized renderer
