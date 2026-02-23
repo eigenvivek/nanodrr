@@ -24,6 +24,7 @@ nav = [
   { "Changes" = "changes.md" },
   { "Tutorials" = [
     { "Basic usage" = "tutorials/demo.md" },
+    { "2D/3D registration" = "tutorials/optim.md" },
   ] },
   { "API Reference" = [
     { "camera" = "api/camera.md" },
