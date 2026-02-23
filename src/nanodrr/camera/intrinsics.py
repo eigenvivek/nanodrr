@@ -13,18 +13,28 @@ def make_k_inv(
     dtype: torch.dtype | None = None,
     device: torch.device | None = None,
 ) -> Float[torch.Tensor, "1 3 3"]:
-    """Build the inverse intrinsic matrix K⁻¹ for a cone-beam projector.
+    r"""Build the inverse intrinsic matrix $\mathbf K^{-1}$ for a cone-beam projector.
 
-    Focal lengths and principal point are derived from the physical geometry:
+    $$
+    \begin{align}
+        f_x &= \frac{\mathrm{SDD}}{\Delta_x} &\quad c_x &= \frac{x_0}{\Delta_x} + \frac{W}{2} \\
+        f_y &= \frac{\mathrm{SDD}}{\Delta_y} &\quad c_y &= \frac{y_0}{\Delta_y} + \frac{H}{2}
+    \end{align}
+    $$
+    
+    where `delx` $= \Delta_x$ and `dely` $= \Delta_y$.
 
-        fx = sdd / delx          cy = y0 / dely + height / 2
-        fy = sdd / dely          cx = x0 / delx + width  / 2
+    The returned matrix is the analytical inverse of the intrinsic matrix:
 
-    The returned matrix is the analytical inverse of:
-
-        K = [[fx, 0, cx],
-             [0, fy, cy],
-             [0,  0,  1]]
+    $$
+    \begin{equation}
+        \mathbf K = \begin{bmatrix}
+            f_x & 0 & c_x \\
+            0 & f_y & c_y \\
+            0 & 0 & 1
+        \end{bmatrix} \,,
+    \end{equation}
+    $$
 
     Args:
         sdd: Source-to-detector distance (mm).

@@ -31,10 +31,10 @@ def make_rt_inv(
     orientation: str | None = "AP",
     isocenter: Float[torch.Tensor, "3"] | None = None,
 ) -> Float[torch.Tensor, "B 4 4"]:
-    """Create 4x4 camera-to-world (extrinsic inverse) matrices.
+    """Create a batch of 4x4 camera-to-world (extrinsic inverse) matrices.
 
     Composes pose and reorientation as ``extrinsic_inv = pose @ reorient``
-    so that *translation* is applied in the pre-reoriented frame.
+    so that `translation` is applied in the pre-reoriented frame.
 
     Args:
         rotation: (B, 3) Euler angles (z, x, y) in degrees, ZXY convention.
