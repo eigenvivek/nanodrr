@@ -8,10 +8,17 @@ def hu_to_mu(
     mu_bone: float = 0.0573,
     hu_bone: float = 1000.0,
 ) -> Float[torch.Tensor, "1 1 D H W"]:
-    """Convert Hounsfield units to linear attenuation coefficients.
+    r"""Convert Hounsfield units to linear attenuation coefficients.
 
-    Uses bilinear scaling with air-water model for HU <= 0 and
-    water-bone model for HU > 0.
+    Uses bilinear scaling with air-water model for HU ≤ 0 and
+    water-bone model for HU > 0:
+
+    $$
+    \mu = \begin{cases}
+        \mu_{\mathrm{water}} \cdot \left(\frac{\mathrm{HU}}{1000} + 1\right) & \text{if } \mathrm{HU} \leq 0 \\
+        \mu_{\mathrm{water}} + (\mu_{\mathrm{bone}} - \mu_{\mathrm{water}}) \cdot \frac{\mathrm{HU}}{\mathrm{HU}_{\mathrm{bone}}} & \text{if } \mathrm{HU} > 0
+    \end{cases}
+    $$
 
     Args:
         data: CT volume in Hounsfield Units with shape (1, 1, D, H, W).
