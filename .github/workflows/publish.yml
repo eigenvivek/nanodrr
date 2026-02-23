@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/<your-package-name>
+      url: https://pypi.org/p/nanodrr
     permissions:
       id-token: write
 
