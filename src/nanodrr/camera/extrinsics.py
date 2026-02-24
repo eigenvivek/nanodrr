@@ -86,7 +86,7 @@ def invert_rt_inv(
     t_pose = extrinsic_inv[..., :3, 3]
 
     translation = torch.einsum("bij,bj->bi", R_pose.transpose(-1, -2), t_pose - iso)
-    rotation = rotmat_to_euler(R_pose, order="ZXY", deg=True)
+    rotation = rotmat_to_euler("ZXY", R_pose, degrees=True)
 
     return rotation, translation
 
