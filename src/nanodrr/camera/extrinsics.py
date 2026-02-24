@@ -1,5 +1,6 @@
 import torch
 from jaxtyping import Float
+from roma import rotmat_to_euler
 
 from ..geometry import convert
 
@@ -31,34 +32,72 @@ def make_rt_inv(
     orientation: str | None = "AP",
     isocenter: Float[torch.Tensor, "3"] | None = None,
 ) -> Float[torch.Tensor, "B 4 4"]:
-    """Create a batch of 4x4 camera-to-world (extrinsic inverse) matrices.
+    """Construct camera-to-world (extrinsic inverse) matrices.
 
-    Composes pose and reorientation as ``extrinsic_inv = pose @ reorient``
-    so that `translation` is applied in the pre-reoriented frame.
+    Computes `extrinsic_inv = pose @ reorient`, where `pose` encodes a
+    ZXY Euler rotation and translation, and `reorient` is a fixed
+    orientation-dependent transform.
 
     Args:
-        rotation: (B, 3) Euler angles (z, x, y) in degrees, ZXY convention.
-        translation: (B, 3) camera position in mm, relative to *isocenter*
-                     (or world origin when isocenter is ``None``).
-        orientation: ``"AP"``, ``"PA"``, or ``None``.
-        isocenter: Optional (3,) volume centre in world coordinates.
+        rotation:    (B, 3) ZXY Euler angles in degrees.
+        translation: (B, 3) Camera position in mm, relative to `isocenter`.
+        orientation: Acquisition orientation — one of `"AP"`, `"PA"`, or `None`.
+        isocenter:   Optional (3,) volume center in world coordinates.
 
     Returns:
-        (B, 4, 4) camera-to-world transformation matrices.
+        (B, 4, 4) camera-to-world matrices.
     """
-    if orientation not in _ORIENTATION_MATRICES:
-        raise ValueError(f"Unknown orientation: {orientation}. Use 'AP', 'PA', or None")
+    pose = convert(
+        rotation,
+        translation,
+        "euler",
+        convention="ZXY",
+        isocenter=_default_isocenter(isocenter, rotation),
+    )
+    return pose @ _get_orientation_matrix(orientation, rotation.device, rotation.dtype)
 
-    device = rotation.device
-    dtype = rotation.dtype
 
-    if isocenter is None:
-        isocenter = torch.zeros(3, device=device, dtype=dtype)
+def invert_rt_inv(
+    extrinsic_inv: Float[torch.Tensor, "B 4 4"],
+    orientation: str | None = "AP",
+    isocenter: Float[torch.Tensor, "3"] | None = None,
+) -> tuple[Float[torch.Tensor, "B 3"], Float[torch.Tensor, "B 3"]]:
+    """Recover rotation and translation from camera-to-world matrices.
 
-    pose = convert(rotation, translation, "euler", convention="ZXY", isocenter=isocenter)
-    orientation_matrix = _get_orientation_matrix(orientation, device, dtype)
+    Inverts the composition performed by [`make_rt_inv`](#nanodrr.camera.extrinsics.make_rt_inv). The
+    `orientation` and `isocenter` arguments must match those used during
+    construction to obtain correct results.
 
-    return pose @ orientation_matrix
+    Args:
+        extrinsic_inv: (B, 4, 4) camera-to-world matrices.
+        orientation:   Acquisition orientation — one of `"AP"`, `"PA"`, or `None`.
+        isocenter:     Optional (3,) volume center in world coordinates.
+
+    Returns:
+        rotation:    (B, 3) ZXY Euler angles in degrees.
+        translation: (B, 3) Camera position in mm, relative to `isocenter`.
+    """
+    device, dtype = extrinsic_inv.device, extrinsic_inv.dtype
+    iso = _default_isocenter(isocenter, extrinsic_inv).view(1, 3)
+
+    R_orient = _get_orientation_matrix(orientation, device, dtype)[:3, :3]
+
+    R_pose = extrinsic_inv[..., :3, :3] @ R_orient.T
+    t_pose = extrinsic_inv[..., :3, 3]
+
+    translation = torch.einsum("bij,bj->bi", R_pose.transpose(-1, -2), t_pose - iso)
+    rotation = rotmat_to_euler("ZXY", R_pose, degrees=True)
+
+    return rotation, translation
+
+
+def _default_isocenter(
+    isocenter: Float[torch.Tensor, "3"] | None,
+    ref: torch.Tensor,
+) -> Float[torch.Tensor, "3"]:
+    if isocenter is not None:
+        return isocenter
+    return torch.zeros(3, device=ref.device, dtype=ref.dtype)
 
 
 def _get_orientation_matrix(
@@ -66,5 +105,8 @@ def _get_orientation_matrix(
     device: torch.device,
     dtype: torch.dtype,
 ) -> Float[torch.Tensor, "4 4"]:
-    """Return the combined orientation + Rz(180°) matrix."""
+    if orientation not in _ORIENTATION_MATRICES:
+        raise ValueError(
+            f"Unknown orientation {orientation!r}. Expected one of: 'AP', 'PA', or None."
+        )
     return torch.tensor(_ORIENTATION_MATRICES[orientation], device=device, dtype=dtype)

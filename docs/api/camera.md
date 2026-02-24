@@ -6,6 +6,7 @@ icon: lucide/switch-camera
     options:
       members:
         - make_rt_inv
+        - invert_rt_inv
         - make_k_inv
         - resample
 
@@ -13,6 +14,8 @@ icon: lucide/switch-camera
 ## Extrinsics
 
 ::: nanodrr.camera.extrinsics.make_rt_inv
+
+::: nanodrr.camera.extrinsics.invert_rt_inv
 
 ## Intrinsics
 

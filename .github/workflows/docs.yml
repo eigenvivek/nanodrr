@@ -1,20 +1,22 @@
-name: Documentation
+name: Docs
+
 on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+
 permissions:
   contents: read
   pages: write
   id-token: write
+
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/configure-pages@v5
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
@@ -27,5 +29,15 @@ jobs:
       - uses: actions/upload-pages-artifact@v4
         with:
           path: site
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/configure-pages@v5
       - uses: actions/deploy-pages@v4
         id: deployment
