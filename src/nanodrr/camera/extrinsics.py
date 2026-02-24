@@ -64,7 +64,7 @@ def invert_rt_inv(
 ) -> tuple[Float[torch.Tensor, "B 3"], Float[torch.Tensor, "B 3"]]:
     """Recover rotation and translation from camera-to-world matrices.
 
-    Inverts the composition performed by [make_rt_inv][]. The
+    Inverts the composition performed by [`make_rt_inv`](#nanodrr.camera.extrinsics.make_rt_inv). The
     `orientation` and `isocenter` arguments must match those used during
     construction to obtain correct results.
 
