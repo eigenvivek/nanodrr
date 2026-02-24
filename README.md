@@ -1,5 +1,6 @@
 # nanodrr
 
+[![tests](https://github.com/eigenvivek/nanodrr/actions/workflows/tests.yml/badge.svg)](https://github.com/eigenvivek/nanodrr/actions/workflows/tests.yml)
 [![docs](https://github.com/eigenvivek/nanodrr/actions/workflows/docs.yml/badge.svg)](https://github.com/eigenvivek/nanodrr/actions/workflows/docs.yml)
 [![pypi](https://img.shields.io/pypi/v/nanodrr?label=PyPI%20version&logo=python&logoColor=white)](https://pypi.org/project/nanodrr)
 
