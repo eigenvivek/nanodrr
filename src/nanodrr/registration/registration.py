@@ -34,18 +34,16 @@ class Registration(torch.nn.Module):
     ):
         super().__init__()
         self.subject = subject
-        self.rt_inv = rt_inv
-        self.k_inv = k_inv
-        self.sdd = sdd
+        self.register_buffer("rt_inv", rt_inv)
+        self.register_buffer("k_inv", k_inv)
+        self.register_buffer("sdd", sdd)
         self.height = height
         self.width = width
 
         # Parameterize the perturbation about the isocenter rather than the world origin
         c = transform_point(rt_inv.inverse(), subject.isocenter[None])
-        self.pivot = torch.eye(4, device=c.device, dtype=c.dtype)[None]
-        self.pivot_inv = torch.eye(4, device=c.device, dtype=c.dtype)[None]
-        self.pivot[:, :3, 3] = c
-        self.pivot_inv[:, :3, 3] = -c
+        self.register_buffer("pivot", self._make_translation(c))
+        self.register_buffer("pivot_inv", self._make_translation(-c))
 
         # Parameterization of the perturbation
         self._rot = torch.nn.Parameter(eps * torch.randn(1, 3, device=c.device))
@@ -65,3 +63,9 @@ class Registration(torch.nn.Module):
     def pose(self) -> Float[torch.Tensor, "B 4 4"]:
         T = convert(self._rot, self._xyz, "so3_log")
         return self.pivot @ T @ self.pivot_inv
+
+    @staticmethod
+    def _make_translation(translation: Float[torch.Tensor, "3"]):
+        T = torch.eye(4, device=translation.device, dtype=translation.dtype)[None]
+        T[:, :3, 3] = translation
+        return T
