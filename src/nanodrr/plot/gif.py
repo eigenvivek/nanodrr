@@ -23,38 +23,47 @@ def animate(
     fps: int = 20,
     pause: float = 1.0,
     verbose: bool = True,
+    blur_kernel: int = 3,
+    canny_low: int = 0,
+    canny_high: int = 100,
+    edge_color: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    edge_alpha: float = 1.0,
     **kwargs,
 ) -> pathlib.Path | None:
     """Create an animated GIF from a batch of DRR images.
 
     Renders a sequence of DRR images as an animated GIF, with optional
-    side-by-side comparison against a fixed reference image. When ``out`` is
-    ``None``, displays the animation inline in Jupyter notebooks.
+    side-by-side comparison against a fixed reference image. When `out` is
+    `None`, displays the animation inline in Jupyter notebooks.
 
     Multi-channel images are automatically converted to single-channel with
     segmentation masks extracted from channels 1+ (channel 0 is background).
 
-    When ``fixed_img`` is provided, a third column is rendered showing the
-    moving image edges overlaid on the fixed image via :func:`overlay`.
+    When `fixed_img` is provided, a third column is rendered showing the
+    moving image edges overlaid on the fixed image via `overlay`.
 
     Args:
         moving_img: Batch of moving DRR images.
         moving_mask: Optional segmentation mask for moving images.
-        out: Output file path, or ``None`` for inline display.
+        out: Output file path, or `None` for inline display.
         fixed_img: Optional fixed reference image for comparison.
         fixed_mask: Optional segmentation mask for fixed image.
-        titles: Optional per-frame titles of length ``B``.
+        titles: Optional per-frame titles of length `B`.
         fps: Frames per second for playback.
         pause: Pause duration in seconds at the end of the loop.
         verbose: Whether to display rendering progress.
-        **kwargs: Additional arguments forwarded to ``imageio.v3.imwrite``
-            or ``plot_drr``.
+        blur_kernel: Gaussian blur kernel size applied before Canny edge detection.
+        canny_low: Lower hysteresis threshold for Canny edge detection.
+        canny_high: Upper hysteresis threshold for Canny edge detection.
+        edge_color: RGB color of the overlaid edges.
+        edge_alpha: Opacity of the overlaid edges, in `[0, 1]`.
+        **kwargs: Additional arguments forwarded to `imageio.v3.imwrite` or `plot_drr`.
 
     Returns:
-        Path to saved file if ``out`` is provided, otherwise ``None``.
+        Path to saved file if `out` is provided, otherwise `None`.
 
     Raises:
-        ValueError: If ``titles`` length does not match batch size.
+        ValueError: If `titles` length does not match batch size.
     """
     B = len(moving_img)
     if titles is not None and len(titles) != B:
@@ -74,6 +83,14 @@ def animate(
     n_cols = 3 if has_fixed else 1
     figsize = (3 * n_cols, 3)
 
+    overlay_kwargs = dict(
+        blur_kernel=blur_kernel,
+        canny_low=canny_low,
+        canny_high=canny_high,
+        edge_color=edge_color,
+        edge_alpha=edge_alpha,
+    )
+
     iterator = tqdm(range(B), desc="Rendering frames", ncols=75) if verbose else range(B)
     frames = []
 
@@ -86,7 +103,7 @@ def animate(
             frame_mask = _concat_masks(fixed_mask, moving_mask[i : i + 1] if moving_mask is not None else None)
             frame_titles = ["Fixed", titles[i] if titles else "Moving", "Overlay"]
             plot_drr(frame_img, frame_mask, title=frame_titles[:2], axs=axs[:2], **plot_kwargs)
-            overlay(fixed_img, moving_img[i : i + 1], title=[frame_titles[2]], axs=axs[2:])
+            overlay(fixed_img, moving_img[i : i + 1], title=[frame_titles[2]], axs=axs[2], **overlay_kwargs)
         else:
             frame_img = moving_img[i : i + 1]
             frame_mask = moving_mask[i : i + 1] if moving_mask is not None else None
@@ -109,6 +126,7 @@ def animate(
         out_path = pathlib.Path(out)
         iio.imwrite(out_path, frames_array, **iio_kwargs)
         return out_path
+
 
 def _normalize(
     img: Float[torch.Tensor, "B C H W"],
