@@ -64,6 +64,14 @@ class Registration(torch.nn.Module):
         T = convert(self._rot, self._xyz, "so3_log")
         return self.pivot @ T @ self.pivot_inv
 
+    @torch.no_grad()
+    def rescale_(self, scale: float):
+        """Change the rendering resolution by rescaling the camera's intrinsics."""
+        self.k_inv[..., 0, 0] /= scale
+        self.k_inv[..., 1, 1] /= scale
+        self.height = int(round(self.height * scale))
+        self.width = int(round(self.width * scale))
+
     @staticmethod
     def _make_translation(translation: Float[torch.Tensor, "B 3"]) -> Float[torch.Tensor, "B 4 4"]:
         """Make a 4x4 matrix representing a translation."""
