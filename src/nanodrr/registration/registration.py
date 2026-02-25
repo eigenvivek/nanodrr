@@ -22,6 +22,7 @@ class Registration(torch.nn.Module):
         width: Output image width in pixels.
         eps: Small constant for numerical stability.
     """
+
     def __init__(
         self,
         subject: Subject,
@@ -61,6 +62,7 @@ class Registration(torch.nn.Module):
 
     @property
     def pose(self) -> Float[torch.Tensor, "B 4 4"]:
+        """Change of basis about the volume's isocenter."""
         T = convert(self._rot, self._xyz, "so3_log")
         return self.pivot @ T @ self.pivot_inv
 
