@@ -10,7 +10,7 @@ from IPython.display import display as ipython_display
 from jaxtyping import Bool, Float
 from tqdm import tqdm
 
-from .imshow import plot_drr
+from .imshow import overlay, plot_drr
 
 
 def animate(
@@ -33,6 +33,9 @@ def animate(
 
     Multi-channel images are automatically converted to single-channel with
     segmentation masks extracted from channels 1+ (channel 0 is background).
+
+    When ``fixed_img`` is provided, a third column is rendered showing the
+    moving image edges overlaid on the fixed image via :func:`overlay`.
 
     Args:
         moving_img: Batch of moving DRR images.
@@ -57,49 +60,46 @@ def animate(
     if titles is not None and len(titles) != B:
         raise ValueError(f"titles length ({len(titles)}) must match batch size ({B})")
 
-    # Normalize to single-channel images with separate masks
     moving_img, moving_mask = _normalize(moving_img, moving_mask)
     if fixed_img is not None:
         fixed_img, fixed_mask = _normalize(fixed_img, fixed_mask)
 
-    # Separate imageio and plot_drr kwargs
     iio_keys = {"duration", "loop", "quality", "quantizer", "palettesize"}
     iio_kwargs = {k: v for k, v in kwargs.items() if k in iio_keys}
     iio_kwargs.setdefault("fps", fps)
     iio_kwargs.setdefault("loop", 0)
     plot_kwargs = {k: v for k, v in kwargs.items() if k not in iio_keys}
 
-    # Render frames
     has_fixed = fixed_img is not None
-    figsize = (6, 3) if has_fixed else (3, 3)
-    n_cols = 2 if has_fixed else 1
+    n_cols = 3 if has_fixed else 1
+    figsize = (3 * n_cols, 3)
 
     iterator = tqdm(range(B), desc="Rendering frames", ncols=75) if verbose else range(B)
     frames = []
 
     for i in iterator:
-        # Prepare batch for this frame
+        fig, axs = plt.subplots(ncols=n_cols, figsize=figsize, constrained_layout=True)
+        axs = [axs] if n_cols == 1 else list(axs)
+
         if has_fixed:
             frame_img = torch.cat([fixed_img, moving_img[i : i + 1]])
             frame_mask = _concat_masks(fixed_mask, moving_mask[i : i + 1] if moving_mask is not None else None)
-            frame_titles = ["Fixed", titles[i] if titles else "Moving"]
+            frame_titles = ["Fixed", titles[i] if titles else "Moving", "Overlay"]
+            plot_drr(frame_img, frame_mask, title=frame_titles[:2], axs=axs[:2], **plot_kwargs)
+            overlay(fixed_img, moving_img[i : i + 1], title=[frame_titles[2]], axs=axs[2:])
         else:
             frame_img = moving_img[i : i + 1]
             frame_mask = moving_mask[i : i + 1] if moving_mask is not None else None
             frame_titles = [titles[i]] if titles else None
+            plot_drr(frame_img, frame_mask, title=frame_titles, axs=axs, **plot_kwargs)
 
-        # Render and capture
-        fig, axs = plt.subplots(ncols=n_cols, figsize=figsize, constrained_layout=True)
-        plot_drr(frame_img, frame_mask, title=frame_titles, axs=axs, **plot_kwargs)
         fig.canvas.draw()
         frames.append(np.asarray(fig.canvas.buffer_rgba())[..., :3])
         plt.close(fig)
 
-    # Add pause at end
     if pause > 0:
         frames.extend([frames[-1]] * int(pause * fps))
 
-    # Output
     frames_array = np.stack(frames)
     if out is None:
         gif_bytes = iio.imwrite("<bytes>", frames_array, extension=".gif", **iio_kwargs)
@@ -109,7 +109,6 @@ def animate(
         out_path = pathlib.Path(out)
         iio.imwrite(out_path, frames_array, **iio_kwargs)
         return out_path
-
 
 def _normalize(
     img: Float[torch.Tensor, "B C H W"],
