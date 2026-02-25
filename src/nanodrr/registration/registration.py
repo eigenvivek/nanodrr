@@ -22,6 +22,7 @@ class Registration(torch.nn.Module):
         width: Output image width in pixels.
         eps: Small constant for numerical stability.
     """
+
     def __init__(
         self,
         subject: Subject,
@@ -31,21 +32,19 @@ class Registration(torch.nn.Module):
         height: int,
         width: int,
         eps: float = 1e-8,
-    ):
+    ) -> None:
         super().__init__()
         self.subject = subject
-        self.rt_inv = rt_inv
-        self.k_inv = k_inv
-        self.sdd = sdd
+        self.register_buffer("rt_inv", rt_inv)
+        self.register_buffer("k_inv", k_inv)
+        self.register_buffer("sdd", sdd)
         self.height = height
         self.width = width
 
         # Parameterize the perturbation about the isocenter rather than the world origin
         c = transform_point(rt_inv.inverse(), subject.isocenter[None])
-        self.pivot = torch.eye(4, device=c.device, dtype=c.dtype)[None]
-        self.pivot_inv = torch.eye(4, device=c.device, dtype=c.dtype)[None]
-        self.pivot[:, :3, 3] = c
-        self.pivot_inv[:, :3, 3] = -c
+        self.register_buffer("pivot", self._make_translation(c))
+        self.register_buffer("pivot_inv", self._make_translation(-c))
 
         # Parameterization of the perturbation
         self._rot = torch.nn.Parameter(eps * torch.randn(1, 3, device=c.device))
@@ -63,5 +62,22 @@ class Registration(torch.nn.Module):
 
     @property
     def pose(self) -> Float[torch.Tensor, "B 4 4"]:
+        """Change of basis about the volume's isocenter."""
         T = convert(self._rot, self._xyz, "so3_log")
         return self.pivot @ T @ self.pivot_inv
+
+    @torch.no_grad()
+    def rescale_(self, scale: float) -> None:
+        """Change the rendering resolution by rescaling the camera's intrinsics."""
+        self.k_inv[..., 0, 0] /= scale
+        self.k_inv[..., 1, 1] /= scale
+        self.height = int(round(self.height * scale))
+        self.width = int(round(self.width * scale))
+
+    @staticmethod
+    def _make_translation(translation: Float[torch.Tensor, "B 3"]) -> Float[torch.Tensor, "B 4 4"]:
+        """Make a 4x4 matrix representing a translation."""
+        B = len(translation)
+        T = torch.eye(4, device=translation.device, dtype=translation.dtype)[None].repeat(B, 1, 1)
+        T[:, :3, 3] = translation
+        return T
