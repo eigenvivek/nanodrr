@@ -65,7 +65,9 @@ class Registration(torch.nn.Module):
         return self.pivot @ T @ self.pivot_inv
 
     @staticmethod
-    def _make_translation(translation: Float[torch.Tensor, "3"]):
-        T = torch.eye(4, device=translation.device, dtype=translation.dtype)[None]
+    def _make_translation(translation: Float[torch.Tensor, "B 3"]) -> Float[torch.Tensor, "B 4 4"]:
+        """Make a 4x4 matrix representing a translation."""
+        B = len(translation)
+        T = torch.eye(4, device=translation.device, dtype=translation.dtype)[None].repeat(B, 1, 1)
         T[:, :3, 3] = translation
         return T
