@@ -32,7 +32,7 @@ class Registration(torch.nn.Module):
         height: int,
         width: int,
         eps: float = 1e-8,
-    ):
+    ) -> None:
         super().__init__()
         self.subject = subject
         self.register_buffer("rt_inv", rt_inv)
@@ -67,7 +67,7 @@ class Registration(torch.nn.Module):
         return self.pivot @ T @ self.pivot_inv
 
     @torch.no_grad()
-    def rescale_(self, scale: float):
+    def rescale_(self, scale: float) -> None:
         """Change the rendering resolution by rescaling the camera's intrinsics."""
         self.k_inv[..., 0, 0] /= scale
         self.k_inv[..., 1, 1] /= scale
