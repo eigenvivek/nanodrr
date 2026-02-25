@@ -6,4 +6,5 @@ icon: lucide/palette
     options:
       members:
         - plot_drr
+        - overlay
         - animate

@@ -1,5 +1,7 @@
+import cv2
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn.functional as F
 from jaxtyping import Bool, Float
@@ -87,6 +89,61 @@ def plot_drr(
         edge_alpha=edge_alpha,
         edge_width=edge_width,
     )
+    return axs
+
+
+def overlay(
+    fixed: Float[torch.Tensor, "B C H W"],
+    moving: Float[torch.Tensor, "B C H W"],
+    title: list[str] | None = None,
+    ticks: bool = True,
+    axs: list[matplotlib.axes.Axes] | None = None,
+    blur_kernel: int = 3,
+    canny_low: int = 0,
+    canny_high: int = 100,
+    edge_color: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    edge_alpha: float = 1.0,
+) -> list[matplotlib.axes.Axes]:
+    """Plot a batch of fixed images with moving image edges overlaid.
+
+    Edges are extracted from the moving image via Canny detection and drawn
+    as a transparent layer on top of the fixed image. Useful for visually
+    assessing registration quality.
+
+    Args:
+        fixed: Fixed images with shape ``(B, C, H, W)``. Channels are summed for display.
+        moving: Moving images with shape ``(B, C, H, W)``. Channels are summed before edge detection.
+        title: Per-image labels of length ``B``. If ``None``, no labels are shown.
+        ticks: Whether to display 1-indexed pixel coordinate ticks. Defaults to ``True``.
+        axs: Pre-existing axes of length ``B``. If ``None``, a new figure is created.
+        blur_kernel: Gaussian blur kernel size applied before Canny. Defaults to ``3``.
+        canny_low: Lower hysteresis threshold for Canny edge detection. Defaults to ``0``.
+        canny_high: Upper hysteresis threshold for Canny edge detection. Defaults to ``100``.
+        edge_color: RGB color of the overlaid edges. Defaults to red ``(1.0, 0.0, 0.0)``.
+        edge_alpha: Opacity of the overlaid edges, in ``[0, 1]``. Defaults to ``1.0``.
+
+    Returns:
+        List of ``Axes`` of length ``B``, one per image in the batch.
+    """
+    fixed_gray = fixed.sum(dim=1, keepdim=True)
+    moving_gray = moving.sum(dim=1)
+
+    def to_uint8(t: torch.Tensor) -> np.ndarray:
+        arr = t.cpu().detach().numpy()
+        return cv2.normalize(arr, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+    axs = _plot_img(fixed_gray, title, ticks, axs, cmap="gray")
+
+    H, W = fixed_gray.shape[-2:]
+    rgba = np.zeros((H, W, 4), dtype=np.float32)
+
+    for m, ax in zip(moving_gray, axs):
+        m_blurred = cv2.GaussianBlur(to_uint8(m), (blur_kernel, blur_kernel), 0)
+        edge_mask = cv2.Canny(m_blurred, canny_low, canny_high).astype(bool)
+        rgba[edge_mask] = (*edge_color, edge_alpha)
+        ax.imshow(rgba)
+        rgba[edge_mask] = 0
+
     return axs
 
 
