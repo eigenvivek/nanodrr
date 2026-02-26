@@ -25,7 +25,7 @@ def plot_drr(
 
     Renders each image by summing across channels, simulating X-ray intensity
     accumulation along a ray. A segmentation mask can be overlaid in two ways:
-    passed explicitly via ``mask``, or derived automatically when ``img`` has
+    passed explicitly via `mask`, or derived automatically when `img` has
     more than one channel (where channel 0 is background and channels 1+ are
     labeled structures). These two modes are mutually exclusive.
 
@@ -35,39 +35,39 @@ def plot_drr(
     via morphological erosion.
 
     Args:
-        img: Batch of DRR images with shape ``(B, C, H, W)``. If ``C > 1``,
+        img: Batch of DRR images with shape `(B, C, H, W)`. If `C > 1`,
             channels 1+ are treated as binary segmentation labels and a mask
-            is derived as ``img > 0``. Channel intensities are summed across
-            ``C`` for display.
-        mask: Explicit segmentation mask with shape ``(B, C, H, W)``, where
+            is derived as `img > 0`. Channel intensities are summed across
+            `C` for display.
+        mask: Explicit segmentation mask with shape `(B, C, H, W)`, where
             channel 0 is background and channels 1+ are labeled structures.
-            Mutually exclusive with a multi-channel ``img``.
-        title: Per-image labels of length ``B``, rendered as x-axis titles.
-            If ``None``, no labels are shown.
+            Mutually exclusive with a multi-channel `img`.
+        title: Per-image labels of length `B`, rendered as x-axis titles.
+            If `None`, no labels are shown.
         ticks: Whether to display 1-indexed pixel coordinate ticks. If
-            ``False``, all tick marks are hidden. Defaults to ``True``.
-        axs: Pre-existing axes to plot into. Must have length ``B``. If
-            ``None``, a new figure with ``B`` subplots is created.
-        cmap: Colormap for the DRR image. Defaults to ``"gray"``.
+            `False`, all tick marks are hidden. Defaults to `True`.
+        axs: Pre-existing axes to plot into. Must have length `B`. If
+            `None`, a new figure with `B` subplots is created.
+        cmap: Colormap for the DRR image. Defaults to `"gray"`.
         mask_cmap: Colormap used to assign colors to segmentation channels.
             Colors are sampled evenly and cycled if the number of channels
-            exceeds ``mask_n_colors``. Defaults to ``"Set2"``.
+            exceeds `mask_n_colors`. Defaults to `"Set2"`.
         mask_n_colors: Number of evenly spaced colors to sample from
-            ``mask_cmap`` before cycling. Defaults to ``7``.
-        interior_alpha: Opacity of the filled mask interior, in ``[0, 1]``.
-            Defaults to ``0.3``.
-        edge_alpha: Opacity of the mask boundary, in ``[0, 1]``.
-            Defaults to ``1.0``.
+            `mask_cmap` before cycling. Defaults to `7`.
+        interior_alpha: Opacity of the filled mask interior, in `[0, 1]`.
+            Defaults to `0.3`.
+        edge_alpha: Opacity of the mask boundary, in `[0, 1]`.
+            Defaults to `1.0`.
         edge_width: Boundary thickness in pixels. Controls the erosion kernel
-            size as ``2 * edge_width + 1``. Defaults to ``1``.
+            size as `2 * edge_width + 1`. Defaults to `1`.
         **imshow_kwargs: Additional keyword arguments forwarded to
-            ``ax.imshow`` for the DRR image only, not the mask.
+            `ax.imshow` for the DRR image only, not the mask.
 
     Returns:
-        List of ``Axes`` of length ``B``, one per image in the batch.
+        List of `Axes` of length `B`, one per image in the batch.
 
     Raises:
-        ValueError: If ``img`` has more than one channel and ``mask`` is
+        ValueError: If `img` has more than one channel and `mask` is
             also provided.
     """
     if img.shape[1] > 1 and mask is not None:
@@ -93,8 +93,8 @@ def plot_drr(
 
 
 def overlay(
-    fixed: Float[torch.Tensor, "B C H W"],
     moving: Float[torch.Tensor, "B C H W"],
+    fixed: Float[torch.Tensor, "B C H W"],
     title: list[str] | None = None,
     ticks: bool = True,
     axs: list[matplotlib.axes.Axes] | None = None,
@@ -111,19 +111,19 @@ def overlay(
     assessing registration quality.
 
     Args:
-        fixed: Fixed images with shape ``(B, C, H, W)``. Channels are summed for display.
-        moving: Moving images with shape ``(B, C, H, W)``. Channels are summed before edge detection.
-        title: Per-image labels of length ``B``. If ``None``, no labels are shown.
-        ticks: Whether to display 1-indexed pixel coordinate ticks. Defaults to ``True``.
-        axs: Pre-existing axes of length ``B``. If ``None``, a new figure is created.
-        blur_kernel: Gaussian blur kernel size applied before Canny. Defaults to ``3``.
-        canny_low: Lower hysteresis threshold for Canny edge detection. Defaults to ``0``.
-        canny_high: Upper hysteresis threshold for Canny edge detection. Defaults to ``100``.
-        edge_color: RGB color of the overlaid edges. Defaults to red ``(1.0, 0.0, 0.0)``.
-        edge_alpha: Opacity of the overlaid edges, in ``[0, 1]``. Defaults to ``1.0``.
+        moving: Moving images with shape `(B, C, H, W)`. Channels are summed before edge detection.
+        fixed: Fixed images with shape `(B, C, H, W)`. Channels are summed for display.
+        title: Per-image labels of length `B`. If `None`, no labels are shown.
+        ticks: Whether to display 1-indexed pixel coordinate ticks. Defaults to `True`.
+        axs: Pre-existing axes of length `B`. If `None`, a new figure is created.
+        blur_kernel: Gaussian blur kernel size applied before Canny. Defaults to `3`.
+        canny_low: Lower hysteresis threshold for Canny edge detection. Defaults to `0`.
+        canny_high: Upper hysteresis threshold for Canny edge detection. Defaults to `100`.
+        edge_color: RGB color of the overlaid edges. Defaults to red `(1.0, 0.0, 0.0)`.
+        edge_alpha: Opacity of the overlaid edges, in `[0, 1]`. Defaults to `1.0`.
 
     Returns:
-        List of ``Axes`` of length ``B``, one per image in the batch.
+        List of `Axes` of length `B`, one per image in the batch.
     """
     fixed_gray = fixed.sum(dim=1, keepdim=True)
     moving_gray = moving.sum(dim=1)
