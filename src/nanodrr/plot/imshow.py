@@ -159,7 +159,7 @@ def _plot_img(
     B = len(img)
     if axs is None:
         _, axs = plt.subplots(ncols=B, figsize=(10, 5))
-    axs = [axs] if B == 1 else list(axs)
+    axs = axs if isinstance(axs, (list, np.ndarray)) else [axs]
     titles = title if title is not None else [None] * B
 
     for single_img, ax, t in zip(img, axs, titles):
