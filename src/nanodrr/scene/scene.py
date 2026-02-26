@@ -32,7 +32,7 @@ def visualize_scene(
         width: Detector width in pixels.
         render_imgs: If True, render DRRs before plotting
         single_channel: If True, sum channels before texturing the detector.
-        culling: Face culling mode passed to each mesh (e.g. ``"back"``).
+        culling: Face culling mode passed to each mesh (e.g. `"back"`).
         verbose: If True, print progress during mesh extraction.
         **kwargs: Additional arguments forwarded to :func:`render`.
 

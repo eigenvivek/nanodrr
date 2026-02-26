@@ -10,7 +10,7 @@ from .preprocess import hu_to_mu
 class Subject(torch.nn.Module):
     """Wrapper for a CT volume and (optional) labelmap that is compatible with
     [`torch.nn.functional.grid_sample`](https://pytorch.org/docs/stable/generated/torch.nn.functional.grid_sample.html).
-    
+
     Fuses all spatial transforms required for sampling (`world → voxel → grid`) so
     that rendering only needs to perform a single matmul.
     """
@@ -58,8 +58,8 @@ class Subject(torch.nn.Module):
             labelpath: Optional path to a label map.
             convert_to_mu: Convert Hounsfield units to linear attenuation.
             mu_water: Linear attenuation coefficient of water (mm⁻¹).
-            max_label: Override the maximum label index. If provided, ``n_classes``
-                is set to ``max_label + 1`` instead of being inferred from the data.
+            max_label: Override the maximum label index. If provided, `n_classes`
+                is set to `max_label + 1` instead of being inferred from the data.
         """
         image = ScalarImage(imagepath)
         label = LabelMap(labelpath) if labelpath is not None else None
@@ -79,12 +79,12 @@ class Subject(torch.nn.Module):
         """Construct a subject from TorchIO image objects.
 
         Args:
-            image: CT volume as a ``ScalarImage``.
-            label: Optional segmentation as a ``LabelMap``.
+            image: CT volume as a `ScalarImage`.
+            label: Optional segmentation as a `LabelMap`.
             convert_to_mu: Convert Hounsfield units to linear attenuation.
             mu_water: Linear attenuation coefficient of water (mm⁻¹).
-            max_label: Override the maximum label index. If provided, ``n_classes``
-                is set to ``max_label + 1`` instead of being inferred from the data.
+            max_label: Override the maximum label index. If provided, `n_classes`
+                is set to `max_label + 1` instead of being inferred from the data.
         """
         # Affine: invert in float64 for numerical accuracy, then downcast
         voxel_to_world_f64 = torch.from_numpy(image.affine).to(torch.float64)
@@ -124,7 +124,7 @@ class Subject(torch.nn.Module):
 
     @staticmethod
     def _make_voxel_to_grid(shape: torch.Size) -> Float[torch.Tensor, "4 4"]:
-        """Build the voxel → [-1, 1] grid transform used by ``grid_sample``.
+        """Build the voxel → [-1, 1] grid transform used by `grid_sample`.
 
         Args:
             shape: (1, 1, D, H, W) volume shape.
