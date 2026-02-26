@@ -93,8 +93,8 @@ def plot_drr(
 
 
 def overlay(
-    fixed: Float[torch.Tensor, "B C H W"],
     moving: Float[torch.Tensor, "B C H W"],
+    fixed: Float[torch.Tensor, "B C H W"],
     title: list[str] | None = None,
     ticks: bool = True,
     axs: list[matplotlib.axes.Axes] | None = None,
@@ -111,8 +111,8 @@ def overlay(
     assessing registration quality.
 
     Args:
-        fixed: Fixed images with shape ``(B, C, H, W)``. Channels are summed for display.
         moving: Moving images with shape ``(B, C, H, W)``. Channels are summed before edge detection.
+        fixed: Fixed images with shape ``(B, C, H, W)``. Channels are summed for display.
         title: Per-image labels of length ``B``. If ``None``, no labels are shown.
         ticks: Whether to display 1-indexed pixel coordinate ticks. Defaults to ``True``.
         axs: Pre-existing axes of length ``B``. If ``None``, a new figure is created.

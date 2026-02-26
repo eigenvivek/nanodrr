@@ -103,7 +103,7 @@ def animate(
             frame_mask = _concat_masks(fixed_mask, moving_mask[i : i + 1] if moving_mask is not None else None)
             frame_titles = ["Fixed", titles[i] if titles else "Moving", "Overlay"]
             plot_drr(frame_img, frame_mask, title=frame_titles[:2], axs=axs[:2], **plot_kwargs)
-            overlay(fixed_img, moving_img[i : i + 1], title=[frame_titles[2]], axs=axs[2], **overlay_kwargs)
+            overlay(moving_img[i : i + 1], fixed_img, title=[frame_titles[2]], axs=axs[2], **overlay_kwargs)
         else:
             frame_img = moving_img[i : i + 1]
             frame_mask = moving_mask[i : i + 1] if moving_mask is not None else None
