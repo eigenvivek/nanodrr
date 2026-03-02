@@ -5,7 +5,7 @@ from jaxtyping import Float
 from ..data import Subject
 from ..drr import render
 from .camera import make_cameras
-from .surface import label_to_mesh
+from .surface import subject_to_mesh
 
 
 def visualize_scene(
@@ -18,6 +18,8 @@ def visualize_scene(
     render_imgs: bool = True,
     single_channel: bool = False,
     culling: str | None = "back",
+    use_label: bool = False,
+    cutoff: float | None = 0.01,
     verbose: bool = False,
     **kwargs,
 ) -> pv.Plotter:
@@ -33,14 +35,17 @@ def visualize_scene(
         render_imgs: If True, render DRRs before plotting
         single_channel: If True, sum channels before texturing the detector.
         culling: Face culling mode passed to each mesh (e.g. `"back"`).
+        use_label: If `True`, use the labelmap; if `False`, use the image volume.
+        cutoff: Threshold for binarizing the image. Ignored when `use_label=True`.
+            Set to `None` to use raw values without binarization.
         verbose: If True, print progress during mesh extraction.
         **kwargs: Additional arguments forwarded to :func:`render`.
 
     Returns:
         A PyVista plotter with the anatomy mesh and camera frustums added.
     """
-    # Get a mesh from the subject's labelmap
-    mesh = label_to_mesh(subject, verbose)
+    # Create a mesh from the subject
+    mesh = subject_to_mesh(subject, use_label, cutoff, verbose)
 
     # Render the DRR
     img = None
