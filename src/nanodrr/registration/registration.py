@@ -51,20 +51,13 @@ class Registration(torch.nn.Module):
         self._xyz = torch.nn.Parameter(eps * torch.randn(1, 3, device=c.device))
 
     def forward(self) -> Float[torch.Tensor, "B C H W"]:
-        return render(
-            self.subject,
-            self.k_inv,
-            self.rt_inv @ self.pose,
-            self.sdd,
-            self.height,
-            self.width,
-        )
+        return render(self.subject, self.k_inv, self.pose, self.sdd, self.height, self.width)
 
     @property
     def pose(self) -> Float[torch.Tensor, "B 4 4"]:
         """Change of basis about the volume's isocenter."""
         T = convert(self._rot, self._xyz, "so3_log")
-        return self.pivot @ T @ self.pivot_inv
+        return self.rt_inv @ self.pivot @ T @ self.pivot_inv
 
     @torch.no_grad()
     def rescale_(self, scale: float) -> None:
