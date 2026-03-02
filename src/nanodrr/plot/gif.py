@@ -1,12 +1,11 @@
-import pathlib
 from base64 import b64encode
+from pathlib import Path
 
-import imageio.v3 as iio
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from IPython.display import HTML
-from IPython.display import display as ipython_display
+from imageio.v3 import imwrite
+from IPython.display import HTML, display
 from jaxtyping import Bool, Float
 from tqdm import tqdm
 
@@ -16,20 +15,22 @@ from .imshow import overlay, plot_drr
 def animate(
     moving_img: Float[torch.Tensor, "B C H W"],
     moving_mask: Bool[torch.Tensor, "B C H W"] | None = None,
-    out: str | pathlib.Path | None = None,
+    out: str | Path | None = None,
     fixed_img: Float[torch.Tensor, "1 C H W"] | None = None,
     fixed_mask: Bool[torch.Tensor, "1 C H W"] | None = None,
     titles: list[str] | None = None,
+    ticks: bool = True,
     fps: int = 20,
     pause: float = 1.0,
-    verbose: bool = True,
     blur_kernel: int = 3,
     canny_low: int = 0,
     canny_high: int = 100,
     edge_color: tuple[float, float, float] = (1.0, 0.0, 0.0),
     edge_alpha: float = 1.0,
+    edge_detection_size: int = 200,
+    verbose: bool = True,
     **kwargs,
-) -> pathlib.Path | None:
+) -> Path | None:
     """Create an animated GIF from a batch of DRR images.
 
     Renders a sequence of DRR images as an animated GIF, with optional
@@ -49,14 +50,15 @@ def animate(
         fixed_img: Optional fixed reference image for comparison.
         fixed_mask: Optional segmentation mask for fixed image.
         titles: Optional per-frame titles of length `B`.
+        ticks: Whether to show pixel coordinate ticks.
         fps: Frames per second for playback.
         pause: Pause duration in seconds at the end of the loop.
-        verbose: Whether to display rendering progress.
         blur_kernel: Gaussian blur kernel size applied before Canny edge detection.
         canny_low: Lower hysteresis threshold for Canny edge detection.
         canny_high: Upper hysteresis threshold for Canny edge detection.
         edge_color: RGB color of the overlaid edges.
         edge_alpha: Opacity of the overlaid edges, in `[0, 1]`.
+        verbose: Whether to display rendering progress.
         **kwargs: Additional arguments forwarded to `imageio.v3.imwrite` or `plot_drr`.
 
     Returns:
@@ -89,6 +91,7 @@ def animate(
         canny_high=canny_high,
         edge_color=edge_color,
         edge_alpha=edge_alpha,
+        edge_detection_size=edge_detection_size,
     )
 
     iterator = tqdm(range(B), desc="Rendering frames", ncols=75) if verbose else range(B)
@@ -102,13 +105,15 @@ def animate(
             frame_img = torch.cat([fixed_img, moving_img[i : i + 1]])
             frame_mask = _concat_masks(fixed_mask, moving_mask[i : i + 1] if moving_mask is not None else None)
             frame_titles = ["Fixed", titles[i] if titles else "Moving", "Overlay"]
-            plot_drr(frame_img, frame_mask, title=frame_titles[:2], axs=axs[:2], **plot_kwargs)
-            overlay(moving_img[i : i + 1], fixed_img, title=[frame_titles[2]], axs=axs[2], **overlay_kwargs)
+            plot_drr(frame_img, frame_mask, title=frame_titles[:2], axs=axs[:2], ticks=ticks, **plot_kwargs)
+            overlay(
+                moving_img[i : i + 1], fixed_img, title=[frame_titles[2]], ticks=ticks, axs=axs[2], **overlay_kwargs
+            )
         else:
             frame_img = moving_img[i : i + 1]
             frame_mask = moving_mask[i : i + 1] if moving_mask is not None else None
             frame_titles = [titles[i]] if titles else None
-            plot_drr(frame_img, frame_mask, title=frame_titles, axs=axs, **plot_kwargs)
+            plot_drr(frame_img, frame_mask, title=frame_titles, ticks=ticks, axs=axs, **plot_kwargs)
 
         fig.canvas.draw()
         frames.append(np.asarray(fig.canvas.buffer_rgba())[..., :3])
@@ -119,12 +124,12 @@ def animate(
 
     frames_array = np.stack(frames)
     if out is None:
-        gif_bytes = iio.imwrite("<bytes>", frames_array, extension=".gif", **iio_kwargs)
-        ipython_display(HTML(f"<img src='data:image/gif;base64,{b64encode(gif_bytes).decode()}'>"))
+        gif_bytes = imwrite("<bytes>", frames_array, extension=".gif", **iio_kwargs)
+        display(HTML(f"<img src='data:image/gif;base64,{b64encode(gif_bytes).decode()}'>"))
         return None
     else:
-        out_path = pathlib.Path(out)
-        iio.imwrite(out_path, frames_array, **iio_kwargs)
+        out_path = Path(out)
+        imwrite(out_path, frames_array, **iio_kwargs)
         return out_path
 
 
