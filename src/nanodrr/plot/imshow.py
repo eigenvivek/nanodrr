@@ -103,46 +103,62 @@ def overlay(
     canny_high: int = 100,
     edge_color: tuple[float, float, float] = (1.0, 0.0, 0.0),
     edge_alpha: float = 1.0,
+    edge_detection_size: int = 200,
 ) -> list[matplotlib.axes.Axes]:
-    """Plot a batch of fixed images with moving image edges overlaid.
+    """Overlay moving image edges on fixed images for registration assessment.
 
-    Edges are extracted from the moving image via Canny detection and drawn
-    as a transparent layer on top of the fixed image. Useful for visually
-    assessing registration quality.
+    Edges are detected using Canny at a fixed resolution for threshold consistency,
+    then upscaled with bilinear interpolation for anti-aliased rendering.
 
     Args:
-        moving: Moving images with shape `(B, C, H, W)`. Channels are summed before edge detection.
-        fixed: Fixed images with shape `(B, C, H, W)`. Channels are summed for display.
-        title: Per-image labels of length `B`. If `None`, no labels are shown.
-        ticks: Whether to display 1-indexed pixel coordinate ticks. Defaults to `True`.
-        axs: Pre-existing axes of length `B`. If `None`, a new figure is created.
-        blur_kernel: Gaussian blur kernel size applied before Canny. Defaults to `3`.
-        canny_low: Lower hysteresis threshold for Canny edge detection. Defaults to `0`.
-        canny_high: Upper hysteresis threshold for Canny edge detection. Defaults to `100`.
-        edge_color: RGB color of the overlaid edges. Defaults to red `(1.0, 0.0, 0.0)`.
-        edge_alpha: Opacity of the overlaid edges, in `[0, 1]`. Defaults to `1.0`.
+        moving: Moving images, shape (B, C, H, W)
+        fixed: Fixed images, shape (B, C, H, W)
+        title: Optional titles for each image in batch
+        ticks: Whether to show pixel coordinate ticks
+        axs: Optional pre-existing axes to plot on
+        blur_kernel: Gaussian blur kernel size (must be odd)
+        canny_low: Canny lower threshold
+        canny_high: Canny upper threshold
+        edge_color: RGB color tuple for edges, values in [0, 1]
+        edge_alpha: Edge opacity in [0, 1]
+        edge_detection_size: Resolution for Canny detection
 
     Returns:
-        List of `Axes` of length `B`, one per image in the batch.
+        List of matplotlib Axes objects
+
+    Raises:
+        ValueError: If input shapes don't match or parameters are invalid
     """
+    if moving.ndim != 4:
+        raise ValueError(f"Expected 4D tensors (B, C, H, W), got {moving.ndim}D")
+    if title is not None and len(title) != moving.shape[0]:
+        raise ValueError(f"Title length {len(title)} != batch size {moving.shape[0]}")
+    if blur_kernel % 2 == 0 or blur_kernel < 1:
+        raise ValueError(f"blur_kernel must be positive odd integer, got {blur_kernel}")
+    if not 0 <= edge_alpha <= 1:
+        raise ValueError(f"edge_alpha must be in [0, 1], got {edge_alpha}")
+
     fixed_gray = fixed.sum(dim=1, keepdim=True)
     moving_gray = moving.sum(dim=1)
-
-    def to_uint8(t: torch.Tensor) -> np.ndarray:
-        arr = t.cpu().detach().numpy()
-        return cv2.normalize(arr, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
     axs = _plot_img(fixed_gray, title, ticks, axs, cmap="gray")
 
     H, W = fixed_gray.shape[-2:]
-    rgba = np.zeros((H, W, 4), dtype=np.float32)
+    for moving_img, ax in zip(moving_gray, axs):
+        img_np = moving_img.cpu().detach().numpy()
+        img_uint8 = cv2.normalize(img_np, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
-    for m, ax in zip(moving_gray, axs):
-        m_blurred = cv2.GaussianBlur(to_uint8(m), (blur_kernel, blur_kernel), 0)
-        edge_mask = cv2.Canny(m_blurred, canny_low, canny_high).astype(bool)
-        rgba[edge_mask] = (*edge_color, edge_alpha)
+        img_small = cv2.resize(img_uint8, (edge_detection_size, edge_detection_size), interpolation=cv2.INTER_AREA)
+        img_blurred = cv2.GaussianBlur(img_small, (blur_kernel, blur_kernel), 0)
+        edges = cv2.Canny(img_blurred, canny_low, canny_high)
+
+        edge_weights = cv2.resize(edges.astype(np.float32) / 255.0, (W, H), interpolation=cv2.INTER_LINEAR)
+
+        rgba = np.zeros((H, W, 4), dtype=np.float32)
+        rgba[..., :3] = edge_color
+        rgba[..., 3] = edge_weights * edge_alpha
+
         ax.imshow(rgba)
-        rgba[edge_mask] = 0
 
     return axs
 
