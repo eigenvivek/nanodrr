@@ -15,6 +15,7 @@ def visualize_scene(
     sdd: Float[torch.Tensor, "B"],
     height: int,
     width: int,
+    render_mesh: bool = True,
     render_imgs: bool = True,
     single_channel: bool = False,
     culling: str | None = "back",
@@ -32,7 +33,8 @@ def visualize_scene(
         sdd: Source-to-detector distances.
         height: Detector height in pixels.
         width: Detector width in pixels.
-        render_imgs: If True, render DRRs before plotting
+        render_mesh: If True, extract a surface mesh and add it to the plot.
+        render_imgs: If True, render DRRs before plotting.
         single_channel: If True, sum channels before texturing the detector.
         culling: Face culling mode passed to each mesh (e.g. `"back"`).
         use_label: If `True`, use the labelmap; if `False`, use the image volume.
@@ -45,7 +47,8 @@ def visualize_scene(
         A PyVista plotter with the anatomy mesh and camera frustums added.
     """
     # Create a mesh from the subject
-    mesh = subject_to_mesh(subject, use_label, cutoff, verbose)
+    if render_mesh:
+        mesh = subject_to_mesh(subject, use_label, cutoff, verbose)
 
     # Render the DRR
     img = None
