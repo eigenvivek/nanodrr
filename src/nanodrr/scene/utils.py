@@ -6,6 +6,7 @@ from ..data import Subject
 
 def subject_to_imagedata(
     subject: Subject,
+    cutoff: float | None = None,
     use_label: bool = False,
 ) -> tuple[pv.ImageData, bool]:
     """Convert a subject's volume or labelmap into a PyVista `ImageData` grid.
@@ -16,10 +17,9 @@ def subject_to_imagedata(
     face flipping for correct surface normals).
 
     Args:
-        subject: Subject containing `subject.image` and optionally
-            `subject.label`.
-        use_label: If `True`, convert the labelmap instead of the density
-            volume.
+        subject: Subject containing `subject.image` and optionally `subject.label`.
+        cutoff: Optional threshold for binarizing the image.
+        use_label: If `True`, convert the labelmap instead of the density volume.
 
     Returns:
         A tuple of:
@@ -37,5 +37,8 @@ def subject_to_imagedata(
         spacing=(1, 1, 1),
         origin=(0, 0, 0),
     )
-    grid.point_data["values"] = data.flatten(order="F")
+    if cutoff is not None:
+        grid.point_data["values"] = data.flatten(order="F") > cutoff
+    else:
+        grid.point_data["values"] = data.flatten(order="F")
     return grid.transform(affine, inplace=False), invert

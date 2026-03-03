@@ -4,21 +4,35 @@ from ..data import Subject
 from .utils import subject_to_imagedata
 
 
-def label_to_mesh(subject: Subject, verbose: bool = False) -> pv.PolyData:
-    """Convert a subject's labelmap into a PyVista surface mesh.
+def subject_to_mesh(
+    subject: Subject,
+    use_label: bool,
+    cutoff: float | None,
+    verbose: bool = False,
+) -> pv.PolyData:
+    """Convert a subject's image or labelmap into a PyVista surface mesh.
 
-    Extracts isosurfaces for each label class using marching cubes and
-    optionally flips face normals to ensure consistent outward orientation.
+    Extracts isosurfaces using marching cubes (for images) or SurfaceNets
+    (for labels), and optionally flips face normals to ensure consistent
+    outward orientation.
 
     Args:
-        subject: Subject containing a multi-class labelmap in `subject.label`.
+        subject: Subject containing data in `subject.image` or `subject.label`.
+        use_label: If `True`, use the labelmap; if `False`, use the image volume.
+        cutoff: Threshold for binarizing the image. Ignored when `use_label=True`.
+            Set to `None` to use raw values without binarization.
         verbose: If `True`, display a progress bar during meshing.
 
     Returns:
-        Surface mesh with one connected region per label class.
+        Surface mesh from the subject data.
     """
-    label, invert = subject_to_imagedata(subject, use_label=True)
-    mesh = label.contour_labels(progress_bar=verbose)
+    # Don't apply cutoff to labelmaps
+    cutoff_value = None if use_label else cutoff
+
+    imagedata, invert = subject_to_imagedata(subject, cutoff=cutoff_value, use_label=use_label)
+    mesh = imagedata.contour_labels(progress_bar=verbose)
+
     if invert:
         mesh = mesh.flip_faces(progress_bar=verbose)
+
     return mesh
