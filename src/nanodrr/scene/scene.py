@@ -21,6 +21,7 @@ def visualize_scene(
     culling: str | None = "back",
     use_label: bool = False,
     cutoff: float | None = 0.01,
+    plotter: pv.Plotter | None = None,
     verbose: bool = False,
     **kwargs,
 ) -> pv.Plotter:
@@ -40,6 +41,7 @@ def visualize_scene(
         use_label: If `True`, use the labelmap; if `False`, use the image volume.
         cutoff: Threshold for binarizing the image. Ignored when `use_label=True`.
             Set to `None` to use raw values without binarization.
+        plotter: A PyVista plotter to add to.
         verbose: If True, print progress during mesh extraction.
         **kwargs: Additional arguments forwarded to :func:`render`.
 
@@ -60,11 +62,13 @@ def visualize_scene(
     cameras = make_cameras(k_inv, rt_inv, sdd, height, width, img)
 
     # Make the scene
-    pl = pv.Plotter()
-    pl.add_mesh(mesh)
+    if plotter is None:
+        plotter = pv.Plotter()
+    if render_mesh:
+        plotter.add_mesh(mesh)
     for cam in cameras:
         if render_imgs:
-            pl.add_mesh(cam["detector"], texture=cam["texture"], lighting=False, culling=culling)
-        pl.add_mesh(cam["camera"], show_edges=True, line_width=3, culling=culling)
-        pl.add_mesh(cam["principal_ray"], line_width=3, color="lime", culling=culling)
-    return pl
+            plotter.add_mesh(cam["detector"], texture=cam["texture"], lighting=False, culling=culling)
+        plotter.add_mesh(cam["camera"], show_edges=True, line_width=3, culling=culling)
+        plotter.add_mesh(cam["principal_ray"], line_width=3, color="lime", culling=culling)
+    return plotter
