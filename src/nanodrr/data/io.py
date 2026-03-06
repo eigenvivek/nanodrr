@@ -9,8 +9,18 @@ from .preprocess import HU_BONE, MU_BONE, MU_WATER, hu_to_mu
 _MU_FIELDS = frozenset({"convert_to_mu", "mu_water", "mu_bone", "hu_bone"})
 
 
+def _validate_mu_kwargs(mu: dict) -> None:
+    unknown = mu.keys() - _MU_FIELDS
+    if unknown:
+        raise TypeError(f"Unknown mu param(s): {', '.join(repr(k) for k in unknown)}")
+
+
 class _CachedParam:
-    """Stores instances of scalar params and invalidates `_image_mu_cache` only when any value changes."""
+    """Descriptor for scalar params that invalidates `_image_mu_cache` on change.
+
+    Accessing this descriptor on the class itself returns the descriptor object;
+    accessing it on an instance returns the stored value (or the default).
+    """
 
     def __init__(self, default) -> None:
         self.default = default
@@ -18,7 +28,9 @@ class _CachedParam:
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = f"_{name}"
 
-    def __get__(self, obj: "Subject", objtype: type | None = None):
+    def __get__(self, obj: "Subject | None", objtype: type | None = None):
+        if obj is None:
+            return self
         return getattr(obj, self.name, self.default)
 
     def __set__(self, obj: "Subject", value) -> None:
@@ -55,6 +67,7 @@ class Subject(torch.nn.Module):
         max_label: int | None = None,
         **mu,
     ) -> None:
+        _validate_mu_kwargs(mu)
         super().__init__()
         self.register_buffer("_image_hu", imagedata)
         self.register_buffer("_image_mu_cache", None, persistent=False)
@@ -66,8 +79,6 @@ class Subject(torch.nn.Module):
         self.register_buffer("voxel_to_grid", voxel_to_grid)
 
         for k, v in mu.items():
-            if k not in _MU_FIELDS:
-                raise TypeError(f"Unknown mu param: {k!r}")
             setattr(self, k, v)
 
         if max_label is not None:
@@ -87,9 +98,34 @@ class Subject(torch.nn.Module):
         return self._image_mu_cache
 
     def to(self, *args, **kwargs) -> "Subject":
+        # Preserve the cache across device/dtype transfers by recomputing on the
+        # new device rather than discarding it — but only if one existed before.
+        had_cache = self._image_mu_cache is not None
         result = super().to(*args, **kwargs)
-        result._image_mu_cache = None
+        if had_cache:
+            result._image_mu_cache = hu_to_mu(result._image_hu, result.mu_water, result.mu_bone, result.hu_bone)
         return result
+
+    def set_mu(
+        self,
+        mu_water: float | torch.Tensor | None = None,
+        mu_bone: float | torch.Tensor | None = None,
+        hu_bone: float | torch.Tensor | None = None,
+    ) -> None:
+        """Recompute the LAC cache from new conversion parameters.
+
+        Prefer this over setting `mu_water`, `mu_bone`, and `hu_bone` individually
+        when calling under `torch.compile`, as it performs a single tensor op and
+        avoids Python-side attribute mutations that would cause graph breaks.
+        The stored scalar params (`self.mu_water` etc.) are intentionally *not*
+        updated here; they remain as the baseline defaults.
+        """
+        self._image_mu_cache = hu_to_mu(
+            self._image_hu,
+            mu_water if mu_water is not None else self.mu_water,
+            mu_bone if mu_bone is not None else self.mu_bone,
+            hu_bone if hu_bone is not None else self.hu_bone,
+        )
 
     @classmethod
     def from_filepath(
@@ -99,16 +135,16 @@ class Subject(torch.nn.Module):
         max_label: int | None = None,
         **mu,
     ) -> "Subject":
-        """Load a subject from NIfTI (or any TorchIO-supported) file paths.
+        """Load a subject from any TorchIO-supported file path.
 
         Args:
             imagepath: Path to the CT volume.
             labelpath: Optional path to a label map.
             max_label: Override the maximum label index. If provided, `n_classes`
                 is set to `max_label + 1` instead of being inferred from the data.
-            **mu: HU → μ conversion params (`convert_to_mu`, `mu_water`, `mu_bone`,
-                `hu_bone`). Unspecified keys fall back to class-level defaults.
+            **mu: HU → μ conversion params. See `from_images` for details.
         """
+        _validate_mu_kwargs(mu)
         image = ScalarImage(imagepath)
         label = LabelMap(labelpath) if labelpath is not None else None
         return cls.from_images(image, label, max_label, **mu)
@@ -130,7 +166,12 @@ class Subject(torch.nn.Module):
                 is set to `max_label + 1` instead of being inferred from the data.
             **mu: HU → μ conversion params (`convert_to_mu`, `mu_water`, `mu_bone`,
                 `hu_bone`). Unspecified keys fall back to class-level defaults.
+
+        Raises:
+            TypeError: If any unrecognised key is passed via `**mu`.
         """
+        _validate_mu_kwargs(mu)
+
         # Affine: invert in float64 for numerical accuracy, then downcast
         voxel_to_world_f64 = torch.from_numpy(image.affine).to(torch.float64)
         voxel_to_world = voxel_to_world_f64.to(torch.float32)
