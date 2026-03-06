@@ -8,9 +8,9 @@ HU_BONE = 1000.0
 
 def hu_to_mu(
     data: Float[torch.Tensor, "1 1 D H W"],
-    mu_water: float = MU_WATER,
-    mu_bone: float = MU_BONE,
-    hu_bone: float = HU_BONE,
+    mu_water: float | torch.Tensor = MU_WATER,
+    mu_bone: float | torch.Tensor = MU_BONE,
+    hu_bone: float | torch.Tensor = HU_BONE,
 ) -> Float[torch.Tensor, "1 1 D H W"]:
     r"""Convert Hounsfield units to linear attenuation coefficients.
 
