@@ -4,16 +4,45 @@ import torch
 from jaxtyping import Float
 from torchio import LabelMap, ScalarImage
 
-from .preprocess import hu_to_mu
+from .preprocess import HU_BONE, MU_BONE, MU_WATER, hu_to_mu
+
+_MU_FIELDS = frozenset({"convert_to_mu", "mu_water", "mu_bone", "hu_bone"})
+
+
+class _CachedParam:
+    """Stores instances of scalar params and invalidates `_image_mu_cache` only when any value changes."""
+
+    def __init__(self, default) -> None:
+        self.default = default
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.name = f"_{name}"
+
+    def __get__(self, obj: "Subject", objtype: type | None = None):
+        return getattr(obj, self.name, self.default)
+
+    def __set__(self, obj: "Subject", value) -> None:
+        if getattr(obj, self.name, self.default) != value:
+            setattr(obj, self.name, value)
+            if hasattr(obj, "_image_mu_cache"):
+                obj._image_mu_cache = None
 
 
 class Subject(torch.nn.Module):
-    """Wrapper for a CT volume and (optional) labelmap that is compatible with
-    [`torch.nn.functional.grid_sample`](https://pytorch.org/docs/stable/generated/torch.nn.functional.grid_sample.html).
+    """Wrapper for a CT volume and (optional) labelmap that is compatible with torch's
+    [`grid_sample`](https://pytorch.org/docs/stable/generated/torch.nn.functional.grid_sample.html).
 
     Fuses all spatial transforms required for sampling (`world → voxel → grid`) so
     that rendering only needs to perform a single matmul.
+
+    Updating any of `convert_to_mu`, `mu_water`, `mu_bone`, or `hu_bone` automatically
+    recomputes the HU to linear attenuation coefficient (LAC) conversion.
     """
+
+    convert_to_mu: bool = _CachedParam(True)
+    mu_water: float = _CachedParam(MU_WATER)
+    mu_bone: float = _CachedParam(MU_BONE)
+    hu_bone: float = _CachedParam(HU_BONE)
 
     def __init__(
         self,
@@ -24,79 +53,92 @@ class Subject(torch.nn.Module):
         voxel_to_grid: Float[torch.Tensor, "4 4"],
         isocenter: Float[torch.Tensor, "3"],
         max_label: int | None = None,
+        **mu,
     ) -> None:
         super().__init__()
-        self.register_buffer("image", imagedata)
+        self.register_buffer("_image_hu", imagedata)
+        self.register_buffer("_image_mu_cache", None, persistent=False)
         self.register_buffer("label", labeldata)
         self.register_buffer("world_to_grid", voxel_to_grid @ world_to_voxel)
         self.register_buffer("isocenter", isocenter)
-
         self.register_buffer("voxel_to_world", voxel_to_world)
         self.register_buffer("world_to_voxel", world_to_voxel)
         self.register_buffer("voxel_to_grid", voxel_to_grid)
+
+        for k, v in mu.items():
+            if k not in _MU_FIELDS:
+                raise TypeError(f"Unknown mu param: {k!r}")
+            setattr(self, k, v)
 
         if max_label is not None:
             self.n_classes = int(max_label + 1)
         else:
             self.n_classes = int(self.label.max().item()) + 1
 
+    @property
+    def image(self) -> Float[torch.Tensor, "1 1 D H W"]:
+        """Volume in units of LACs (or raw values if `convert_to_mu` is False).
+        Result is cached and recomputed only when conversion params change.
+        """
+        if not self.convert_to_mu:
+            return self._image_hu
+        if self._image_mu_cache is None:
+            self._image_mu_cache = hu_to_mu(self._image_hu, self.mu_water, self.mu_bone, self.hu_bone)
+        return self._image_mu_cache
+
+    def to(self, *args, **kwargs) -> "Subject":
+        result = super().to(*args, **kwargs)
+        result._image_mu_cache = None
+        return result
+
     @classmethod
     def from_filepath(
         cls,
         imagepath: str | Path,
         labelpath: str | Path | None = None,
-        convert_to_mu: bool = True,
-        mu_water: float = 0.0192,
-        mu_bone: float = 0.0573,
-        hu_bone: float = 1000.0,
         max_label: int | None = None,
+        **mu,
     ) -> "Subject":
         """Load a subject from NIfTI (or any TorchIO-supported) file paths.
 
         Args:
             imagepath: Path to the CT volume.
             labelpath: Optional path to a label map.
-            convert_to_mu: Convert Hounsfield units to linear attenuation.
-            mu_water: Linear attenuation coefficient of water (mm⁻¹).
             max_label: Override the maximum label index. If provided, `n_classes`
                 is set to `max_label + 1` instead of being inferred from the data.
+            **mu: HU → μ conversion params (`convert_to_mu`, `mu_water`, `mu_bone`,
+                `hu_bone`). Unspecified keys fall back to class-level defaults.
         """
         image = ScalarImage(imagepath)
         label = LabelMap(labelpath) if labelpath is not None else None
-        return cls.from_images(image, label, convert_to_mu, mu_water, mu_bone, hu_bone, max_label)
+        return cls.from_images(image, label, max_label, **mu)
 
     @classmethod
     def from_images(
         cls,
         image: ScalarImage,
         label: LabelMap | None = None,
-        convert_to_mu: bool = True,
-        mu_water: float = 0.0192,
-        mu_bone: float = 0.0573,
-        hu_bone: float = 1000.0,
         max_label: int | None = None,
+        **mu,
     ) -> "Subject":
         """Construct a subject from TorchIO image objects.
 
         Args:
             image: CT volume as a `ScalarImage`.
             label: Optional segmentation as a `LabelMap`.
-            convert_to_mu: Convert Hounsfield units to linear attenuation.
-            mu_water: Linear attenuation coefficient of water (mm⁻¹).
             max_label: Override the maximum label index. If provided, `n_classes`
                 is set to `max_label + 1` instead of being inferred from the data.
+            **mu: HU → μ conversion params (`convert_to_mu`, `mu_water`, `mu_bone`,
+                `hu_bone`). Unspecified keys fall back to class-level defaults.
         """
         # Affine: invert in float64 for numerical accuracy, then downcast
         voxel_to_world_f64 = torch.from_numpy(image.affine).to(torch.float64)
         voxel_to_world = voxel_to_world_f64.to(torch.float32)
         world_to_voxel = voxel_to_world_f64.inverse().to(torch.float32)
 
-        # Image data
+        # Store raw HU — conversion is applied lazily via .image
         imagedata = cls._to_bcdhw(image.data).to(torch.float32)
-        if convert_to_mu:
-            imagedata = hu_to_mu(imagedata, mu_water, mu_bone, hu_bone)
 
-        # Label data
         if label is not None:
             labeldata = cls._to_bcdhw(label.data).to(torch.float32)
         else:
@@ -113,6 +155,7 @@ class Subject(torch.nn.Module):
             voxel_to_grid,
             isocenter,
             max_label,
+            **mu,
         )
 
     @staticmethod

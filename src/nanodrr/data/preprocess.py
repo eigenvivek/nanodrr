@@ -1,12 +1,16 @@
 import torch
 from jaxtyping import Float
 
+MU_WATER = 0.0192
+MU_BONE = 0.0573
+HU_BONE = 1000.0
+
 
 def hu_to_mu(
     data: Float[torch.Tensor, "1 1 D H W"],
-    mu_water: float = 0.0192,
-    mu_bone: float = 0.0573,
-    hu_bone: float = 1000.0,
+    mu_water: float = MU_WATER,
+    mu_bone: float = MU_BONE,
+    hu_bone: float = HU_BONE,
 ) -> Float[torch.Tensor, "1 1 D H W"]:
     r"""Convert Hounsfield units to linear attenuation coefficients.
 
