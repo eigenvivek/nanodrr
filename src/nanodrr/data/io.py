@@ -210,12 +210,18 @@ class Subject(torch.nn.Module):
     def _make_voxel_to_grid(shape: torch.Size) -> Float[torch.Tensor, "4 4"]:
         """Build the voxel → [-1, 1] grid transform used by `grid_sample`.
 
+        Maps voxel indices (referencing voxel centers) into PyTorch's normalized
+        grid coordinates, consistent with align_corners=False. In this convention
+        the grid spans [-1, 1] across the full spatial extent of the volume
+        (voxel edges), so voxel center i maps to -1 + (i + 0.5) * 2 / size.
+
         Args:
             shape: (1, 1, D, H, W) volume shape.
         """
         *_, D, H, W = shape
-        scale = 2.0 / torch.tensor([W - 1, H - 1, D - 1], dtype=torch.float32)
+        size = torch.tensor([W, H, D], dtype=torch.float32)
+        scale = 2.0 / size
         mat = torch.eye(4, dtype=torch.float32)
         mat[:3, :3] = torch.diag(scale)
-        mat[:3, 3] = -1.0
+        mat[:3, 3] = scale / 2 - 1.0  # voxel center 0 → -1 + 1/size
         return mat
