@@ -25,7 +25,7 @@ To strictly install the renderer:
 pip install nanodrr
 ```
 
-To install the optional [3D visualization module](api/scene.md):
+To install the optional [3D visualization module](https://vivekg.dev/nanodrr/api/scene/):
 ```
 pip install "nanodrr[scene]"
 ```
@@ -62,3 +62,4 @@ uv run --group docs zensical serve
 - [ ] Integrate with [`xvr`](https://github.com/eigenvivek/xvr) to speed up network training and registration
 - [ ] Integrate with [`polypose`](https://github.com/eigenvivek/polypose) to speed up registration
 - [ ] Release as `v1.0.0` of `DiffDRR`!
+
