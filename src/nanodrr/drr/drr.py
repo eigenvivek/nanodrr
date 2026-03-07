@@ -60,7 +60,6 @@ class DRR(torch.nn.Module):
         subject: Subject,
         rt_inv: Float[torch.Tensor, "B 4 4"],
         n_samples: int = 500,
-        align_corners: bool = True,
     ):
         return render(
             subject,
@@ -70,7 +69,6 @@ class DRR(torch.nn.Module):
             self.height,
             self.width,
             n_samples,
-            align_corners,
             None,
             self.tgt,
         )

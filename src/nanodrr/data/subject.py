@@ -208,14 +208,26 @@ class Subject(torch.nn.Module):
 
     @staticmethod
     def _make_voxel_to_grid(shape: torch.Size) -> Float[torch.Tensor, "4 4"]:
-        """Build the voxel → [-1, 1] grid transform used by `grid_sample`.
+        """Build the affine matrix mapping voxel indices to `grid_sample` normalized coordinates.
+
+        PyTorch's `grid_sample` with `align_corners=False` defines normalized coordinates
+        so that the full voxel extent `[-0.5, S - 0.5]` maps to `[-1, 1]`.
+        A voxel center at index $$i$$ therefore maps to:
+
+        $$x_{\text{norm}} = \frac{2}{S} i + \left(\frac{1}{S} - 1\right)$$
+
+        This method encodes that per-axis scaling and offset into a homogeneous
+        affine matrix applied to voxel-index coordinates.
 
         Args:
-            shape: (1, 1, D, H, W) volume shape.
+            shape: Volume shape `(1, 1, D, H, W)`.
+
+        Returns:
+            Affine matrix mapping voxel indices to `[-1, 1]` normalized grid coordinates.
         """
         *_, D, H, W = shape
-        scale = 2.0 / torch.tensor([W - 1, H - 1, D - 1], dtype=torch.float32)
+        size = torch.tensor([W, H, D], dtype=torch.float32)
         mat = torch.eye(4, dtype=torch.float32)
-        mat[:3, :3] = torch.diag(scale)
-        mat[:3, 3] = -1.0
+        mat[:3, :3] = torch.diag(2.0 / size)
+        mat[:3, 3] = 1.0 / size - 1.0
         return mat

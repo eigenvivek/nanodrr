@@ -14,7 +14,6 @@ def render(
     height: int,
     width: int,
     n_samples: int = 500,
-    align_corners: bool = True,
     src: Float[torch.Tensor, "B (H W) 3"] | None = None,
     tgt: Float[torch.Tensor, "B (H W) 3"] | None = None,
 ) -> Float[torch.Tensor, "B C H W"]:
@@ -39,8 +38,6 @@ def render(
         width: Output image width in pixels.
         n_samples: Number of samples to take along each ray. Higher values
             improve accuracy at the cost of memory and compute.
-        align_corners: If `True`, the voxel grid corners are aligned with the
-            volume boundaries (consistent with `torch.nn.functional.grid_sample`).
         src: Pre-computed ray source positions in world coordinates. If `None`,
             computed from `k_inv` and `rt_inv`.
         tgt: Pre-computed ray target positions (detector pixel locations) in
@@ -83,7 +80,7 @@ def render(
         subject.image.expand(B, -1, -1, -1, -1),
         pts,
         mode="bilinear",
-        align_corners=align_corners,
+        align_corners=False,
     )[:, 0, ..., 0]  # [B, n_samples, N]
     img = img * step_size[:, None, :]
 
@@ -95,7 +92,7 @@ def render(
         subject.label.expand(B, -1, -1, -1, -1),
         pts,
         mode="nearest",
-        align_corners=align_corners,
+        align_corners=False,
     )[:, 0, ..., 0].long()  # [B, n_samples, N]
 
     # Compute the structure-specific ray marching
