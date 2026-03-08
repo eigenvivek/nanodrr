@@ -19,4 +19,4 @@ jobs:
           enable-cache: true
 
       - name: Run tests
-        run: uv run pytest
+        run: uv run --all-extras --all-groups pytest
