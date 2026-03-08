@@ -2427,8 +2427,6 @@ source = { editable = "." }
 dependencies = [
     { name = "jaxtyping", version = "0.3.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "jaxtyping", version = "0.3.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "matplotlib" },
-    { name = "opencv-python" },
     { name = "platformdirs" },
     { name = "roma" },
     { name = "setuptools" },
@@ -2438,8 +2436,14 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "matplotlib" },
+    { name = "opencv-python" },
     { name = "pyvista", extra = ["all"] },
     { name = "vtk" },
+]
+plot = [
+    { name = "matplotlib" },
+    { name = "opencv-python" },
 ]
 scene = [
     { name = "pyvista", extra = ["all"] },
@@ -2467,9 +2471,10 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "jaxtyping", specifier = ">=0.3.0" },
-    { name = "matplotlib", specifier = ">=3.0.0" },
+    { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.0.0" },
+    { name = "nanodrr", extras = ["plot"], marker = "extra == 'all'" },
     { name = "nanodrr", extras = ["scene"], marker = "extra == 'all'" },
-    { name = "opencv-python", specifier = ">=4.0.0" },
+    { name = "opencv-python", marker = "extra == 'plot'", specifier = ">=4.0.0" },
     { name = "platformdirs", specifier = ">=4.0.0" },
     { name = "pyvista", extras = ["all"], marker = "extra == 'scene'", specifier = ">=0.47.0" },
     { name = "roma", specifier = ">=1.5.6" },
@@ -2478,7 +2483,7 @@ requires-dist = [
     { name = "torchio", specifier = ">=0.21.0" },
     { name = "vtk", marker = "extra == 'scene'", specifier = ">=9.6.0" },
 ]
-provides-extras = ["scene", "all"]
+provides-extras = ["plot", "scene", "all"]
 
 [package.metadata.requires-dev]
 benchmark = [

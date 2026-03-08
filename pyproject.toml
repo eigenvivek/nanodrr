@@ -6,8 +6,6 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "jaxtyping>=0.3.0",
-    "matplotlib>=3.0.0",
-    "opencv-python>=4.0.0",
     "platformdirs>=4.0.0",
     "roma>=1.5.6",
     "setuptools>=82.0.0",
@@ -16,11 +14,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+plot = [
+    "matplotlib>=3.0.0",
+    "opencv-python>=4.0.0",
+]
 scene = [
     "pyvista[all]>=0.47.0",
     "vtk>=9.6.0",
 ]
 all = [
+    "nanodrr[plot]",
     "nanodrr[scene]",
 ]
 
