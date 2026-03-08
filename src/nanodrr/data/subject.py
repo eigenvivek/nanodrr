@@ -208,7 +208,7 @@ class Subject(torch.nn.Module):
 
     @staticmethod
     def _make_voxel_to_grid(shape: torch.Size) -> Float[torch.Tensor, "4 4"]:
-        """Build the affine matrix mapping voxel indices to `grid_sample` normalized coordinates.
+        r"""Build the affine matrix mapping voxel indices to `grid_sample` normalized coordinates.
 
         PyTorch's `grid_sample` with `align_corners=False` defines normalized coordinates
         so that the full voxel extent `[-0.5, S - 0.5]` maps to `[-1, 1]`.
