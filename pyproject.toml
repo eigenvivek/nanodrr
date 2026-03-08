@@ -27,6 +27,11 @@ all = [
 requires = ["uv_build>=0.10.2,<0.11.0"]
 build-backend = "uv_build"
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:builtin type Swig.*has no __module__:DeprecationWarning",
+]
+
 [tool.ruff]
 line-length = 120
 
