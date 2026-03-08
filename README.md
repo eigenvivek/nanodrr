@@ -25,9 +25,11 @@ To strictly install the renderer:
 pip install nanodrr
 ```
 
-To install the optional [3D visualization module](https://vivekg.dev/nanodrr/api/scene/):
+To install the optional [plotting](https://vivekg.dev/nanodrr/api/plot/) or [3D visualization module](https://vivekg.dev/nanodrr/api/scene/):
 ```
-pip install "nanodrr[scene]"
+pip install "nanodrr[plot]"   # 2D visualization (matplotlib, opencv)
+pip install "nanodrr[scene]"  # 3D visualization (VTK, PyVista)
+pip install "nanodrr[all]"    # All extras
 ```
 
 ## Benchmarks
