@@ -19,7 +19,7 @@ jobs:
           enable-cache: true
 
       - name: Type check
-        run: uvx ty check
+        run: uv run --all-extras --all-groups ty check
 
       - name: Run tests
         run: uv run --all-extras --all-groups pytest
