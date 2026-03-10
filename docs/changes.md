@@ -44,7 +44,7 @@ class DRR(torch.nn.Module):
     ) -> None:
 ```
 
-As highlighted in the [basic usage tutorial](tutorials/demo.md), different [`nanodrr.data.Subject`](api/data.md#nanodrr.data.Subject)s can be passed to this object at runetime:
+As highlighted in the [basic usage tutorial](tutorials/demo.md), different [`nanodrr.data.Subject`](api/data.md#nanodrr.data.Subject)s can be passed to this object at runtime:
 
 ```python
 drr = DRR(k_inv, sdd, height, width)
