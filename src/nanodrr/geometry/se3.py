@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Literal
 
 import torch
 import roma
@@ -26,15 +25,10 @@ class Parameterization(str, Enum):
         }[self]
 
 
-ParameterizationLike = (
-    Parameterization | Literal["euler", "quaternion", "quaternion_adjugate", "rotation_9d", "so3_log", "se3_log"]
-)
-
-
 def convert(
     rotation: Float[torch.Tensor, "B D"],
     translation: Float[torch.Tensor, "B 3"],
-    parameterization: ParameterizationLike,
+    parameterization: Parameterization | str,
     convention: str | None = None,
     degrees: bool = True,
     isocenter: Float[torch.Tensor, "3"] | None = None,
