@@ -30,6 +30,10 @@ class DRR(torch.nn.Module):
         width: Output image width in pixels.
     """
 
+    k_inv: Float[torch.Tensor, "B 3 3"]
+    sdd: Float[torch.Tensor, "B"]
+    tgt: Float[torch.Tensor, "B (H W) 3"]
+
     _intrinsic_params = {"k_inv", "sdd", "height", "width"}
 
     def __init__(
@@ -87,5 +91,5 @@ class DRR(torch.nn.Module):
         device: torch.device | None = None,
     ):
         k_inv = make_k_inv(sdd, delx, dely, x0, y0, height, width).to(dtype=dtype, device=device)
-        sdd = torch.tensor([sdd], dtype=dtype, device=device)
-        return cls(k_inv, sdd, height, width)
+        sdd_tensor = torch.tensor([sdd], dtype=dtype, device=device)
+        return cls(k_inv, sdd_tensor, height, width)

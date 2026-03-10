@@ -106,7 +106,5 @@ def _get_orientation_matrix(
     dtype: torch.dtype,
 ) -> Float[torch.Tensor, "4 4"]:
     if orientation not in _ORIENTATION_MATRICES:
-        raise ValueError(
-            f"Unknown orientation {orientation!r}. Expected one of: 'AP', 'PA', or None."
-        )
+        raise ValueError(f"Unknown orientation {orientation!r}. Expected one of: 'AP', 'PA', or None.")
     return torch.tensor(_ORIENTATION_MATRICES[orientation], device=device, dtype=dtype)

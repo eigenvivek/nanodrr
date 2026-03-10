@@ -1,3 +1,5 @@
+from typing import Literal
+
 import pyvista as pv
 import torch
 from jaxtyping import Float
@@ -6,6 +8,9 @@ from ..data import Subject
 from ..drr import render
 from .camera import make_cameras
 from .surface import subject_to_mesh
+
+
+CullingMode = Literal["front", "back", "frontface", "backface", "f", "b"]
 
 
 def visualize_scene(
@@ -18,7 +23,7 @@ def visualize_scene(
     render_mesh: bool = True,
     render_imgs: bool = True,
     single_channel: bool = False,
-    culling: str | None = "back",
+    culling: CullingMode | None = "back",
     use_label: bool = False,
     cutoff: float | None = 0.01,
     plotter: pv.Plotter | None = None,

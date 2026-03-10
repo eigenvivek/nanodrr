@@ -1,5 +1,6 @@
 import cv2
-import matplotlib
+import matplotlib.axes
+import matplotlib.colors
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -146,7 +147,9 @@ def overlay(
     H, W = fixed_gray.shape[-2:]
     for moving_img, ax in zip(moving_gray, axs):
         img_np = moving_img.cpu().detach().numpy()
-        img_uint8 = cv2.normalize(img_np, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        img_uint8 = cv2.normalize(
+            img_np, dst=np.empty_like(img_np), alpha=0, beta=255, norm_type=cv2.NORM_MINMAX
+        ).astype(np.uint8)
 
         img_small = cv2.resize(img_uint8, (edge_detection_size, edge_detection_size), interpolation=cv2.INTER_AREA)
         img_blurred = cv2.GaussianBlur(img_small, (blur_kernel, blur_kernel), 0)
@@ -236,5 +239,9 @@ def _sample_colors(
 ) -> list[tuple[int, int, int]]:
     """Sample `n` RGB colors from a colormap, cycling through a base palette of `n_base`."""
     colormap = matplotlib.colormaps.get_cmap(cmap)
-    base = [tuple(int(c * 255) for c in colormap(i / max(n_base - 1, 1))[:3]) for i in range(n_base)]
+    base = [
+        (int(r * 255), int(g * 255), int(b * 255))
+        for i in range(n_base)
+        for r, g, b, *_ in [colormap(i / max(n_base - 1, 1))]
+    ]
     return [base[i % n_base] for i in range(n)]

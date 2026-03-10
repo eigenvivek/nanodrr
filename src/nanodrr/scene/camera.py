@@ -69,6 +69,7 @@ def make_cameras(
 def _texture(img: Float[torch.Tensor, "1 C H W"]) -> pv.Texture:
     ax = plot_drr(img, ticks=False)[0]
     ax.set_axis_off()
+    assert isinstance(ax.figure, plt.Figure)
     ax.figure.subplots_adjust(left=0, right=1, top=1, bottom=0)
     buf = BytesIO()
     ax.figure.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)

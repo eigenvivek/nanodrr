@@ -51,10 +51,19 @@ class Subject(torch.nn.Module):
     recomputes the HU to linear attenuation coefficient (LAC) conversion.
     """
 
-    convert_to_mu: bool = _CachedParam(True)
-    mu_water: float = _CachedParam(MU_WATER)
-    mu_bone: float = _CachedParam(MU_BONE)
-    hu_bone: float = _CachedParam(HU_BONE)
+    convert_to_mu: bool = _CachedParam(True)  # type: ignore
+    mu_water: float = _CachedParam(MU_WATER)  # type: ignore
+    mu_bone: float = _CachedParam(MU_BONE)  # type: ignore
+    hu_bone: float = _CachedParam(HU_BONE)  # type: ignore
+
+    _image_hu: Float[torch.Tensor, "1 1 D H W"]
+    _image_mu_cache: Float[torch.Tensor, "1 1 D H W"] | None
+    label: Float[torch.Tensor, "1 1 D H W"]
+    world_to_grid: Float[torch.Tensor, "4 4"]
+    isocenter: Float[torch.Tensor, "3"]
+    voxel_to_world: Float[torch.Tensor, "4 4"]
+    world_to_voxel: Float[torch.Tensor, "4 4"]
+    voxel_to_grid: Float[torch.Tensor, "4 4"]
 
     def __init__(
         self,
@@ -99,7 +108,7 @@ class Subject(torch.nn.Module):
 
     def to(self, *args, **kwargs) -> "Subject":
         # Preserve the cache across device/dtype transfers by recomputing on the
-        # new device rather than discarding it — but only if one existed before.
+        # new device rather than discarding it, but only if one existed before.
         had_cache = self._image_mu_cache is not None
         result = super().to(*args, **kwargs)
         if had_cache:

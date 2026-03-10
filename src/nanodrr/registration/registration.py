@@ -23,6 +23,12 @@ class Registration(torch.nn.Module):
         eps: Small constant for numerical stability.
     """
 
+    rt_inv: Float[torch.Tensor, "B 4 4"]
+    k_inv: Float[torch.Tensor, "B 3 3"]
+    sdd: Float[torch.Tensor, "B"]
+    pivot: Float[torch.Tensor, "B 4 4"]
+    pivot_inv: Float[torch.Tensor, "B 4 4"]
+
     def __init__(
         self,
         subject: Subject,

@@ -1,5 +1,6 @@
 from base64 import b64encode
 from pathlib import Path
+from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,6 +8,7 @@ import torch
 from imageio.v3 import imwrite
 from IPython.display import HTML, display
 from jaxtyping import Bool, Float
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from tqdm import tqdm
 
 from .imshow import overlay, plot_drr
@@ -81,18 +83,8 @@ def animate(
     iio_kwargs.setdefault("loop", 0)
     plot_kwargs = {k: v for k, v in kwargs.items() if k not in iio_keys}
 
-    has_fixed = fixed_img is not None
-    n_cols = 3 if has_fixed else 1
+    n_cols = 3 if fixed_img is not None else 1
     figsize = (3 * n_cols, 3)
-
-    overlay_kwargs = dict(
-        blur_kernel=blur_kernel,
-        canny_low=canny_low,
-        canny_high=canny_high,
-        edge_color=edge_color,
-        edge_alpha=edge_alpha,
-        edge_detection_size=edge_detection_size,
-    )
 
     iterator = tqdm(range(B), desc="Rendering frames", ncols=75) if verbose else range(B)
     frames = []
@@ -101,13 +93,23 @@ def animate(
         fig, axs = plt.subplots(ncols=n_cols, figsize=figsize, constrained_layout=True)
         axs = [axs] if n_cols == 1 else list(axs)
 
-        if has_fixed:
+        if fixed_img is not None:
             frame_img = torch.cat([fixed_img, moving_img[i : i + 1]])
             frame_mask = _concat_masks(fixed_mask, moving_mask[i : i + 1] if moving_mask is not None else None)
             frame_titles = ["Fixed", titles[i] if titles else "Moving", "Overlay"]
             plot_drr(frame_img, frame_mask, title=frame_titles[:2], axs=axs[:2], ticks=ticks, **plot_kwargs)
             overlay(
-                moving_img[i : i + 1], fixed_img, title=[frame_titles[2]], ticks=ticks, axs=axs[2], **overlay_kwargs
+                moving_img[i : i + 1],
+                fixed_img,
+                title=[frame_titles[2]],
+                ticks=ticks,
+                axs=axs[2],
+                blur_kernel=blur_kernel,
+                canny_low=canny_low,
+                canny_high=canny_high,
+                edge_color=edge_color,
+                edge_alpha=edge_alpha,
+                edge_detection_size=edge_detection_size,
             )
         else:
             frame_img = moving_img[i : i + 1]
@@ -116,7 +118,7 @@ def animate(
             plot_drr(frame_img, frame_mask, title=frame_titles, ticks=ticks, axs=axs, **plot_kwargs)
 
         fig.canvas.draw()
-        frames.append(np.asarray(fig.canvas.buffer_rgba())[..., :3])
+        frames.append(np.asarray(cast(FigureCanvasAgg, fig.canvas).buffer_rgba())[..., :3])
         plt.close(fig)
 
     if pause > 0:
@@ -149,26 +151,20 @@ def _concat_masks(
     mask1: torch.Tensor | None,
     mask2: torch.Tensor | None,
 ) -> torch.Tensor | None:
-    """Concatenate two masks, padding channels as needed."""
     if mask1 is None and mask2 is None:
         return None
-
     if mask1 is None:
+        assert mask2 is not None
         return torch.cat([torch.zeros_like(mask2), mask2])
     if mask2 is None:
         return torch.cat([mask1, torch.zeros_like(mask1)])
 
-    # Pad to matching channel dimensions
     max_ch = max(mask1.shape[1], mask2.shape[1])
-    if mask1.shape[1] < max_ch:
-        pad = torch.zeros(
-            *mask1.shape[:1], max_ch - mask1.shape[1], *mask1.shape[2:], dtype=mask1.dtype, device=mask1.device
-        )
-        mask1 = torch.cat([mask1, pad], dim=1)
-    if mask2.shape[1] < max_ch:
-        pad = torch.zeros(
-            *mask2.shape[:1], max_ch - mask2.shape[1], *mask2.shape[2:], dtype=mask2.dtype, device=mask2.device
-        )
-        mask2 = torch.cat([mask2, pad], dim=1)
+    return torch.cat([_pad_channels(mask1, max_ch), _pad_channels(mask2, max_ch)])
 
-    return torch.cat([mask1, mask2])
+
+def _pad_channels(mask: torch.Tensor, n: int) -> torch.Tensor:
+    if mask.shape[1] >= n:
+        return mask
+    pad = torch.zeros(*mask.shape[:1], n - mask.shape[1], *mask.shape[2:], dtype=mask.dtype, device=mask.device)
+    return torch.cat([mask, pad], dim=1)

@@ -101,6 +101,10 @@ def _make_gaussian_kernel_1d(
 
 
 class _Sobel(torch.nn.Module):
+    sobel_weight: Float[Tensor, "2 1 3 3"]
+    gauss_h: Float[Tensor, "1 1 1 K"]
+    gauss_v: Float[Tensor, "1 1 K 1"]
+
     def __init__(self, sigma: float):
         super().__init__()
         self.sigma = sigma
