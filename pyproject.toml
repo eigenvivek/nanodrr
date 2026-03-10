@@ -53,6 +53,7 @@ benchmark = [
 dev = [
     "prek>=0.3.2",
     "pytest>=9.0.2",
+    "ty>=0.0.21",
 ]
 docs = [
     "black>=26.1.0",
