@@ -13,7 +13,6 @@
 set -euo pipefail
 
 PYTORCH_VERSIONS=(
-    "2.4"
     "2.5"
     "2.6"
     "2.7"
@@ -52,7 +51,7 @@ for version in "${PYTORCH_VERSIONS[@]}"; do
         --with "torch>=${version},<${version%.0}.99" \
         "$BENCHMARK_SCRIPT" \
         --output "$RESULTS_CSV" \
-    || echo "  ⚠  PyTorch ${version} failed (may not be released yet)"
+    || echo "  ⚠  PyTorch ${version} failed"
 done
 
 echo ""
