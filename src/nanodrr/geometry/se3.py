@@ -26,13 +26,13 @@ class Parameterization(str, Enum):
 
 
 def convert(
-    rotation: Float[torch.Tensor, "B D"],
-    translation: Float[torch.Tensor, "B 3"],
+    rotation: Float[torch.Tensor, "*B D"],
+    translation: Float[torch.Tensor, "*B 3"],
     parameterization: Parameterization | str,
     convention: str | None = None,
     degrees: bool = True,
     isocenter: Float[torch.Tensor, "3"] | None = None,
-) -> Float[torch.Tensor, "B 4 4"]:
+) -> Float[torch.Tensor, "*B 4 4"]:
     """Convert a rotation parameterization + camera center into a batch of camera
     poses in SE(3). The `translation` is interpreted as the camera center in world
     coordinates, i.e., the resulting matrix stores `t = R @ translation`.
@@ -40,12 +40,12 @@ def convert(
     Args:
         rotation: Rotation parameters, shape depends on parameterization:
 
-            - `EULER`:                (B, 3) Euler angles
-            - `QUATERNION`:           (B, 4) unit quaternion (XYZW)
-            - `QUATERNION_ADJUGATE`:  (B, 10) upper-tri of 4x4 symmetric matrix
-            - `ROTATION_9D`:          (B, 9) flattened 3x3 matrix (projected via SVD)
-            - `SE3_LOG`:              (B, 3) rotation part of se(3) logarithm
-        translation: Camera center in world coordinates, shape (B, 3).
+            - `EULER`:                (*B, 3) Euler angles
+            - `QUATERNION`:           (*B, 4) unit quaternion (XYZW)
+            - `QUATERNION_ADJUGATE`:  (*B, 10) upper-tri of 4x4 symmetric matrix
+            - `ROTATION_9D`:          (*B, 9) flattened 3x3 matrix (projected via SVD)
+            - `SE3_LOG`:              (*B, 3) rotation part of se(3) logarithm
+        translation: Camera center in world coordinates, shape (*B, 3).
             For `SE3_LOG` this is the log-translation (coupled via the V-matrix).
         parameterization: Which rotation representation to use.
         convention: Required for EULER only. 3-letter string from {X, Y, Z}, e.g., "XYZ".
@@ -55,7 +55,7 @@ def convert(
             so that the camera orbits around `isocenter`.
 
     Returns:
-        Batched SE(3) matrices of shape (B, 4, 4).
+        Batched SE(3) matrices of shape (*B, 4, 4).
     """
     parameterization = Parameterization(parameterization)
 
@@ -63,19 +63,19 @@ def convert(
         return _se3_exp_map(rotation, translation)
 
     R = rotation_to_matrix(rotation, parameterization, convention, degrees)
-    t = torch.einsum("bij, bj -> bi", R, translation)
+    t = torch.einsum("...ij,...j->...i", R, translation)
     if isocenter is not None:
         t = t + isocenter
     return make_se3(R, t)
 
 
 def rotation_to_matrix(
-    rotation: Float[torch.Tensor, "B D"],
+    rotation: Float[torch.Tensor, "*B D"],
     parameterization: Parameterization,
     convention: str | None = None,
     degrees: bool = False,
-) -> Float[torch.Tensor, "B 3 3"]:
-    """Convert rotation parameters into a (B, 3, 3) rotation matrix.
+) -> Float[torch.Tensor, "*B 3 3"]:
+    """Convert rotation parameters into a (*B, 3, 3) rotation matrix.
 
     Args:
         rotation: Rotation parameters (shape depends on parameterization).
@@ -84,7 +84,7 @@ def rotation_to_matrix(
         degrees: If True and EULER, interpret angles in degrees.
 
     Returns:
-        Batched rotation matrices of shape (B, 3, 3).
+        Batched rotation matrices of shape (*B, 3, 3).
     """
     parameterization = Parameterization(parameterization)
 
@@ -104,7 +104,7 @@ def rotation_to_matrix(
         return roma.unitquat_to_rotmat(q)
 
     if parameterization == Parameterization.ROTATION_9D:
-        return roma.special_procrustes(rotation.reshape(-1, 3, 3))
+        return roma.special_procrustes(rotation.reshape(*rotation.shape[:-1], 3, 3))
 
     if parameterization == Parameterization.SO3_LOG:
         return roma.rotvec_to_rotmat(rotation)
@@ -115,25 +115,24 @@ def rotation_to_matrix(
     raise ValueError(f"Unknown parameterization: {parameterization}")
 
 
-def make_se3(R: Float[torch.Tensor, "B 3 3"], t: Float[torch.Tensor, "B 3"]) -> Float[torch.Tensor, "B 4 4"]:
-    """Assemble a (B, 4, 4) SE(3) matrix from rotation and translation.
+def make_se3(R: Float[torch.Tensor, "*B 3 3"], t: Float[torch.Tensor, "*B 3"]) -> Float[torch.Tensor, "*B 4 4"]:
+    """Assemble a (*B, 4, 4) SE(3) matrix from rotation and translation.
 
     Args:
-        R: Rotation matrices of shape (B, 3, 3).
-        t: Translation vectors of shape (B, 3).
+        R: Rotation matrices of shape (*B, 3, 3).
+        t: Translation vectors of shape (*B, 3).
 
     Returns:
-        Homogeneous transformation matrices of shape (B, 4, 4).
+        Homogeneous transformation matrices of shape (*B, 4, 4).
     """
-    B = R.shape[0]
-    T = torch.zeros(B, 4, 4, dtype=R.dtype, device=R.device)
-    T[:, :3, :3] = R
-    T[:, :3, 3] = t
-    T[:, 3, 3] = 1.0
+    T = torch.zeros(*R.shape[:-2], 4, 4, dtype=R.dtype, device=R.device)
+    T[..., :3, :3] = R
+    T[..., :3, 3] = t
+    T[..., 3, 3] = 1.0
     return T
 
 
-def quaternion_adjugate_to_quaternion(rotation: Float[torch.Tensor, "B 10"]) -> Float[torch.Tensor, "B 4"]:
+def quaternion_adjugate_to_quaternion(rotation: Float[torch.Tensor, "*B 10"]) -> Float[torch.Tensor, "*B 4"]:
     """Convert a 10D quaternion-adjugate vector to a unit quaternion.
 
     The 10D vector encodes the upper triangle of a symmetric 4x4 matrix (the
@@ -143,28 +142,30 @@ def quaternion_adjugate_to_quaternion(rotation: Float[torch.Tensor, "B 10"]) -> 
     Reference: https://arxiv.org/abs/2205.09116
 
     Args:
-        rotation: (B, 10) upper-triangular entries of the 4x4 symmetric matrix.
+        rotation: (*B, 10) upper-triangular entries of the 4x4 symmetric matrix.
 
     Returns:
-        Unit quaternions of shape (B, 4).
+        Unit quaternions of shape (*B, 4).
     """
     A = _vec10_to_symmetric4x4(rotation)
-    norms = A.norm(dim=1).amax(dim=1, keepdim=True)
-    max_eigenvectors = torch.argmax(A.norm(dim=1), dim=1)
-    return A[range(len(A)), max_eigenvectors] / norms
+    col_norms = A.norm(dim=-2)
+    norms = col_norms.amax(dim=-1, keepdim=True)
+    max_eigenvectors = torch.argmax(col_norms, dim=-1)
+    idx = max_eigenvectors[..., None, None].expand(*max_eigenvectors.shape, 1, 4)
+    return A.gather(-2, idx).squeeze(-2) / norms
 
 
-def se3_log_map(matrix: Float[torch.Tensor, "B 4 4"]) -> tuple[Float[torch.Tensor, "B 3"], Float[torch.Tensor, "B 3"]]:
+def se3_log_map(matrix: Float[torch.Tensor, "*B 4 4"]) -> tuple[Float[torch.Tensor, "*B 3"], Float[torch.Tensor, "*B 3"]]:
     """Compute the SE(3) logarithm of a batch of 4x4 transformation matrices.
 
     Args:
-        matrix: (B, 4, 4) SE(3) matrices.
+        matrix: (*B, 4, 4) SE(3) matrices.
 
     Returns:
-        Tuple of (log_rotation, log_translation), each (B, 3).
+        Tuple of (log_rotation, log_translation), each (*B, 3).
     """
-    R = matrix[:, :3, :3]
-    t = matrix[:, :3, 3]
+    R = matrix[..., :3, :3]
+    t = matrix[..., :3, 3]
 
     log_rotation = roma.rotmat_to_rotvec(R)
     V = _se3_V_matrix(log_rotation)
@@ -174,24 +175,24 @@ def se3_log_map(matrix: Float[torch.Tensor, "B 4 4"]) -> tuple[Float[torch.Tenso
 
 
 def _se3_exp_map(
-    log_rotation: Float[torch.Tensor, "B 3"], log_translation: Float[torch.Tensor, "B 3"]
-) -> Float[torch.Tensor, "B 4 4"]:
+    log_rotation: Float[torch.Tensor, "*B 3"], log_translation: Float[torch.Tensor, "*B 3"]
+) -> Float[torch.Tensor, "*B 4 4"]:
     """Compute the SE(3) exponential map.
 
     Args:
-        log_rotation: (B, 3) rotation part of the se(3) logarithm (rotation vector).
-        log_translation: (B, 3) translation part of the se(3) logarithm.
+        log_rotation: (*B, 3) rotation part of the se(3) logarithm (rotation vector).
+        log_translation: (*B, 3) translation part of the se(3) logarithm.
 
     Returns:
-        (B, 4, 4) SE(3) matrices.
+        (*B, 4, 4) SE(3) matrices.
     """
     R = roma.rotvec_to_rotmat(log_rotation)
     V = _se3_V_matrix(log_rotation)
-    t = torch.einsum("bij, bj -> bi", V, log_translation)
+    t = torch.einsum("...ij,...j->...i", V, log_translation)
     return make_se3(R, t)
 
 
-def _se3_V_matrix(log_rotation: Float[torch.Tensor, "B 3"], eps: float = 1e-4) -> Float[torch.Tensor, "B 3 3"]:
+def _se3_V_matrix(log_rotation: Float[torch.Tensor, "*B 3"], eps: float = 1e-4) -> Float[torch.Tensor, "*B 3 3"]:
     """Compute the V matrix for the SE(3) exp/log maps.
 
     V = I + ((1 - cos θ) / θ²) [ω]× + ((θ - sin θ) / θ³) [ω]×²
@@ -199,33 +200,33 @@ def _se3_V_matrix(log_rotation: Float[torch.Tensor, "B 3"], eps: float = 1e-4) -
     where θ = ‖log_rotation‖ and [ω]× is the skew-symmetric (hat) matrix.
 
     Args:
-        log_rotation: (B, 3) rotation vectors.
+        log_rotation: (*B, 3) rotation vectors.
         eps: Clamping threshold to avoid division by zero near θ=0.
 
     Returns:
-        (B, 3, 3) V matrices.
+        (*B, 3, 3) V matrices.
     """
-    theta_sq = (log_rotation * log_rotation).sum(dim=-1)  # (B,)
-    theta = theta_sq.clamp(min=eps).sqrt()  # (B,)
+    theta_sq = (log_rotation * log_rotation).sum(dim=-1)
+    theta = theta_sq.clamp(min=eps).sqrt()
 
-    skew = _hat(log_rotation)  # (B, 3, 3)
-    skew_sq = skew @ skew  # (B, 3, 3)
+    skew = _hat(log_rotation)
+    skew_sq = torch.einsum("...ij,...jk->...ik", skew, skew)
 
     I = torch.eye(3, dtype=log_rotation.dtype, device=log_rotation.device)  # noqa: E741
-    a = ((1.0 - torch.cos(theta)) / theta_sq).unsqueeze(-1).unsqueeze(-1)
-    b = ((theta - torch.sin(theta)) / (theta_sq * theta)).unsqueeze(-1).unsqueeze(-1)
+    a = ((1.0 - torch.cos(theta)) / theta_sq)[..., None, None]
+    b = ((theta - torch.sin(theta)) / (theta_sq * theta))[..., None, None]
 
     return I + a * skew + b * skew_sq
 
 
-def _hat(v: Float[torch.Tensor, "B 3"]) -> Float[torch.Tensor, "B 3 3"]:
+def _hat(v: Float[torch.Tensor, "*B 3"]) -> Float[torch.Tensor, "*B 3 3"]:
     """Compute the skew-symmetric (hat) matrix of a batch of 3D vectors.
 
     Args:
-        v: (B, 3) vectors.
+        v: (*B, 3) vectors.
 
     Returns:
-        (B, 3, 3) skew-symmetric matrices.
+        (*B, 3, 3) skew-symmetric matrices.
     """
     x, y, z = v.unbind(dim=-1)
     zero = torch.zeros_like(x)
@@ -236,21 +237,20 @@ def _hat(v: Float[torch.Tensor, "B 3"]) -> Float[torch.Tensor, "B 3 3"]:
             *(-y, x, zero),
         ],
         dim=-1,
-    ).reshape(v.shape[0], 3, 3)
+    ).reshape(*v.shape[:-1], 3, 3)
 
 
-def _vec10_to_symmetric4x4(vec: Float[torch.Tensor, "B 10"]) -> Float[torch.Tensor, "B 4 4"]:
+def _vec10_to_symmetric4x4(vec: Float[torch.Tensor, "*B 10"]) -> Float[torch.Tensor, "*B 4 4"]:
     """Convert a 10D vector to a symmetric 4x4 matrix.
 
     Args:
-        vec: (B, 10) upper-triangular entries.
+        vec: (*B, 10) upper-triangular entries.
 
     Returns:
-        (B, 4, 4) symmetric matrices.
+        (*B, 4, 4) symmetric matrices.
     """
-    B = vec.shape[0]
-    A = torch.zeros(B, 4, 4, dtype=vec.dtype, device=vec.device)
+    A = torch.zeros(*vec.shape[:-1], 4, 4, dtype=vec.dtype, device=vec.device)
     idx, jdx = torch.triu_indices(4, 4)
-    A[:, idx, jdx] = vec
-    A[:, jdx, idx] = vec
+    A[..., idx, jdx] = vec
+    A[..., jdx, idx] = vec
     return A
