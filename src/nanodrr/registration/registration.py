@@ -1,8 +1,11 @@
+from typing import Literal
+
 import torch
 from jaxtyping import Float
 
 from ..data import Subject
-from ..drr import render
+from ..drr import render as nano_render
+from ..warp import render as warp_render
 from ..geometry import convert, transform_point
 
 
@@ -37,6 +40,7 @@ class Registration(torch.nn.Module):
         sdd: Float[torch.Tensor, "B"],
         height: int,
         width: int,
+        backend: Literal["torch", "warp"] = "torch",
         eps: float = 1e-8,
     ) -> None:
         super().__init__()
@@ -56,8 +60,16 @@ class Registration(torch.nn.Module):
         self._rot = torch.nn.Parameter(eps * torch.randn(1, 3, device=c.device))
         self._xyz = torch.nn.Parameter(eps * torch.randn(1, 3, device=c.device))
 
+        # Set the backend
+        if backend == "torch":
+            self.render = nano_render
+        elif backend == "warp":
+            self.render = warp_render
+        else:
+            raise ValueError
+
     def forward(self) -> Float[torch.Tensor, "B C H W"]:
-        return render(self.subject, self.k_inv, self.pose, self.sdd, self.height, self.width)
+        return self.render(self.subject, self.k_inv, self.pose, self.sdd, self.height, self.width)
 
     @property
     def pose(self) -> Float[torch.Tensor, "B 4 4"]:
