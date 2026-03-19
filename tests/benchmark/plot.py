@@ -128,7 +128,9 @@ def plot(df: pd.DataFrame, output: str) -> None:
 def main():
     parser = argparse.ArgumentParser(description="Plot benchmark results.")
     parser.add_argument("--input", "-i", default=str(Path(__file__).parent / "benchmark.csv"))
-    parser.add_argument("--output", "-o", default=str(Path(__file__).parent.parent.parent / "docs/assets/images/benchmark.png"))
+    parser.add_argument(
+        "--output", "-o", default=str(Path(__file__).parent.parent.parent / "docs/assets/images/benchmark.png")
+    )
     args = parser.parse_args()
     plot(pd.read_csv(args.input), args.output)
 

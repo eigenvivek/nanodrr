@@ -16,21 +16,24 @@ def test_make_se3_and_se3_log_roundtrip():
     R = torch.eye(3).unsqueeze(0).repeat(B, 1, 1)
     # Add small random rotations
     rotvec = torch.randn(B, 3) * 0.1
-    R = torch.linalg.matrix_exp(
-        torch.stack(
-            [
-                torch.tensor(
-                    [
-                        [0.0, -z, y],
-                        [z, 0.0, -x],
-                        [-y, x, 0.0],
-                    ]
-                )
-                for x, y, z in rotvec
-            ],
-            dim=0,
+    R = (
+        torch.linalg.matrix_exp(
+            torch.stack(
+                [
+                    torch.tensor(
+                        [
+                            [0.0, -z, y],
+                            [z, 0.0, -x],
+                            [-y, x, 0.0],
+                        ]
+                    )
+                    for x, y, z in rotvec
+                ],
+                dim=0,
+            )
         )
-    ) @ R
+        @ R
+    )
 
     t = torch.randn(B, 3)
     T = make_se3(R, t)
@@ -83,4 +86,3 @@ def test_quaternion_adjugate_to_quaternion_unit_norm():
     q_rec = quaternion_adjugate_to_quaternion(vec10)
     norms = q_rec.norm(dim=-1)
     torch.testing.assert_close(norms, torch.ones_like(norms), atol=1e-5, rtol=1e-5)
-

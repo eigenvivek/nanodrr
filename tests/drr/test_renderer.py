@@ -65,7 +65,7 @@ def test_single_ray_integral_equals_one():
     # Cast a single ray along the x-axis from x = -1.5 mm to x = +1.5 mm,
     # passing through the central voxel at the origin.
     src = torch.tensor([[[-1.5, 0.0, 0.0]]], dtype=torch.float32)  # (1, 1, 3)
-    tgt = torch.tensor([[[1.5, 0.0, 0.0]]], dtype=torch.float32)   # (1, 1, 3)
+    tgt = torch.tensor([[[1.5, 0.0, 0.0]]], dtype=torch.float32)  # (1, 1, 3)
 
     # Use many samples so that the Riemann sum closely approximates the
     # continuous line integral through the central voxel.
@@ -89,4 +89,3 @@ def test_single_ray_integral_equals_one():
     # The integral of the unit impulse along this ray should be 1 (within a
     # small numerical tolerance due to discretisation).
     assert value == approx(1.0, rel=1e-3, abs=1e-3)
-

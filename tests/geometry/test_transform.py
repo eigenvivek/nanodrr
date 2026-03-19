@@ -63,4 +63,3 @@ def test_transform_point_composition():
     out_seq = transform_point(Bmat, transform_point(A, pts))
     out_comp = transform_point(Bmat @ A, pts)
     torch.testing.assert_close(out_seq, out_comp)
-

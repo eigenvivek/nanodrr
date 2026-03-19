@@ -29,7 +29,9 @@ def test_roundtrip_with_isocenter(orientation):
     isocenter = torch.tensor([10.0, -20.0, 5.0])
 
     extrinsic_inv = make_rt_inv(rotation, translation, orientation=orientation, isocenter=isocenter)
-    recovered_rotation, recovered_translation = invert_rt_inv(extrinsic_inv, orientation=orientation, isocenter=isocenter)
+    recovered_rotation, recovered_translation = invert_rt_inv(
+        extrinsic_inv, orientation=orientation, isocenter=isocenter
+    )
 
     torch.testing.assert_close(recovered_rotation, rotation)
     torch.testing.assert_close(recovered_translation, translation)

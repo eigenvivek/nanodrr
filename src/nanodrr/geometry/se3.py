@@ -155,7 +155,9 @@ def quaternion_adjugate_to_quaternion(rotation: Float[torch.Tensor, "*B 10"]) ->
     return A.gather(-2, idx).squeeze(-2) / norms
 
 
-def se3_log_map(matrix: Float[torch.Tensor, "*B 4 4"]) -> tuple[Float[torch.Tensor, "*B 3"], Float[torch.Tensor, "*B 3"]]:
+def se3_log_map(
+    matrix: Float[torch.Tensor, "*B 4 4"],
+) -> tuple[Float[torch.Tensor, "*B 3"], Float[torch.Tensor, "*B 3"]]:
     """Compute the SE(3) logarithm of a batch of 4x4 transformation matrices.
 
     Args:
