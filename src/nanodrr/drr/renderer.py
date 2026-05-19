@@ -14,6 +14,7 @@ def render(
     height: int,
     width: int,
     n_samples: int = 500,
+    orthographic: bool = False,
     src: Float[torch.Tensor, "B (H W) 3"] | None = None,
     tgt: Float[torch.Tensor, "B (H W) 3"] | None = None,
 ) -> Float[torch.Tensor, "B C H W"]:
@@ -38,6 +39,7 @@ def render(
         width: Output image width in pixels.
         n_samples: Number of samples to take along each ray. Higher values
             improve accuracy at the cost of memory and compute.
+        orthographic: Render with parallel beams instead of cone beams.
         src: Pre-computed ray source positions in world coordinates. If `None`,
             computed from `k_inv` and `rt_inv`.
         tgt: Pre-computed ray target positions (detector pixel locations) in
@@ -54,10 +56,10 @@ def render(
     N = height * width
 
     # Get the ray endpoints in camera coordinates
-    if src is None:
-        src = torch.zeros(B, 1, 3, device=device, dtype=dtype)
     if tgt is None:
         tgt = _make_tgt(k_inv, sdd, height, width, device, dtype)
+    if src is None:
+        src = _make_src(orthographic, tgt, sdd)
 
     # Compute step size [mm] in camera space
     step_size = (tgt - src).norm(dim=-1) / float(n_samples - 1)
@@ -118,3 +120,18 @@ def _make_tgt(
     uv1 = torch.stack([u, v, torch.ones_like(u)], dim=-1).reshape(N, 3)
     tgt = sdd[:, None, None] * torch.einsum("bij,nj->bni", k_inv, uv1)
     return tgt
+
+
+def _make_src(
+    orthographic: bool,
+    tgt: Float[torch.Tensor, "B (H W) 3"],
+    sdd: Float[torch.Tensor, "B"],
+) -> Float[torch.Tensor, "B (H W) 3"] | Float[torch.Tensor, "B 1 3"]:
+    if orthographic:
+        src = tgt.clone()
+        src[..., 2] -= sdd[:, None]
+        return src
+    else:
+        B, _, _ = tgt.shape
+        device, dtype = tgt.device, tgt.dtype
+        return torch.zeros(B, 1, 3, device=device, dtype=dtype)
