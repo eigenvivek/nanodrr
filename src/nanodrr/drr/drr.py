@@ -1,9 +1,9 @@
 import torch
 from jaxtyping import Float
 
-from .renderer import render, _make_tgt, _make_src
 from ..camera import make_k_inv
 from ..data import Subject
+from .renderer import _make_src, _make_tgt, render
 
 
 class DRR(torch.nn.Module):
@@ -80,6 +80,7 @@ class DRR(torch.nn.Module):
             self.height,
             self.width,
             n_samples,
+            self.orthographic,
             self.src,
             self.tgt,
         )
@@ -94,9 +95,9 @@ class DRR(torch.nn.Module):
         y0: float,
         height: int,
         width: int,
+        orthographic: bool = False,
         dtype: torch.dtype | None = None,
         device: torch.device | None = None,
-        orthographic: bool = False,
     ):
         k_inv = make_k_inv(sdd, delx, dely, x0, y0, height, width).to(dtype=dtype, device=device)
         sdd_tensor = torch.tensor([sdd], dtype=dtype, device=device)
