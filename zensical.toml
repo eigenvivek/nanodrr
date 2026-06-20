@@ -30,6 +30,7 @@ nav = [
     { "camera" = "api/camera.md" },
     { "data" = "api/data.md" },
     { "drr" = "api/drr.md" },
+    { "ecc" = "api/ecc.md" },
     { "geometry" = "api/geometry.md" },
     { "metrics" = "api/metrics.md" },
     { "plot" = "api/plot.md" },
