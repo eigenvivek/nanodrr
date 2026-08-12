@@ -35,9 +35,9 @@ pip install "nanodrr[all]"    # All extras
 ## Benchmarks
 
 > [!IMPORTANT]
-> - **~5× faster** than [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) out of the box, without compilation (946 FPS vs 213 FPS)
-> - **~8× faster** with `torch.compile` and `bfloat16` on `pytorch>=2.9` (1,650 FPS vs 213 FPS)
-> - **~2.5× less memory** than `DiffDRR` (516 MB vs 1,344 MB peak reserved with `bfloat16` + compile)
+> - **~5× faster** than [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) out of the box, without compilation (1,069 FPS vs 212 FPS)
+> - **~8× faster** with `torch.compile` and `bfloat16` on `pytorch>=2.9` (1,764 FPS vs 212 FPS)
+> - **~2.5× less memory** than `DiffDRR` (514 MB vs 1,362 MB peak reserved with `bfloat16` + compile)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/images/benchmark_dark.png">
