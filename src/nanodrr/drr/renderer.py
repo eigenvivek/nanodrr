@@ -84,10 +84,10 @@ def render(
         mode="bilinear",
         align_corners=False,
     )[:, 0, ..., 0]  # [B, n_samples, N]
-    img = img * step_size[:, None, :]
 
     if C == 1:  # Compute whole-volume ray marching
-        return img.sum(dim=1, keepdim=True).reshape(B, C, height, width)
+        img = img.sum(dim=1, keepdim=True) * step_size[:, None, :]
+        return img.reshape(B, C, height, width)
 
     # Sample the mask
     idx = F.grid_sample(
@@ -100,6 +100,7 @@ def render(
     # Compute the structure-specific ray marching
     out = torch.zeros(B, C, N, device=img.device, dtype=img.dtype)
     out.scatter_add_(1, idx, img)
+    out = out * step_size[:, None, :]
     return out.reshape(B, C, height, width)
 
 
