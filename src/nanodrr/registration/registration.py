@@ -56,8 +56,10 @@ class Registration(torch.nn.Module):
         self._rot = torch.nn.Parameter(eps * torch.randn(1, 3, device=c.device))
         self._xyz = torch.nn.Parameter(eps * torch.randn(1, 3, device=c.device))
 
-    def forward(self) -> Float[torch.Tensor, "B C H W"]:
-        return render(self.subject, self.k_inv, self.pose, self.sdd, self.height, self.width)
+    def forward(self, n_samples: int = 500, backend: str = "auto") -> Float[torch.Tensor, "B C H W"]:
+        return render(
+            self.subject, self.k_inv, self.pose, self.sdd, self.height, self.width, n_samples, backend=backend
+        )
 
     @property
     def pose(self) -> Float[torch.Tensor, "B 4 4"]:
