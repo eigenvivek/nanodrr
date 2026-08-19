@@ -13,6 +13,7 @@ wheels/
 .ipynb_checkpoints
 
 # Data
+data/
 *.nii.gz
 
 # Docs build files
