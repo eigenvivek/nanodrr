@@ -7,7 +7,7 @@
 A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the following improvements:
 
 - Optimized, pure PyTorch implementation (**~5× faster than `DiffDRR` at baseline**)
-- Fused Triton rendering kernel, used by default on CUDA (**up to ~40× faster than `DiffDRR`**)
+- Fused Triton rendering kernel, used by default on CUDA (**up to ~80× faster than `DiffDRR`**)
 - Modular design (freely swap subjects, extrinsics, and intrinsics during rendering)
 - Compatibility with `torch.compile` and mixed precision
 - Extensive type hints with `jaxtyping`
@@ -36,9 +36,9 @@ pip install "nanodrr[all]"    # All extras
 ## Benchmarks
 
 > [!IMPORTANT]
-> - **~5× faster** than [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the pure PyTorch backend (1,094 FPS vs 223 FPS)
-> - **~33× faster** with the fused Triton kernel, without compilation (7,358 FPS vs 223 FPS)
-> - **~39× faster** with `torch.compile` and `bfloat16` (8,622 FPS vs 223 FPS)
+> - **~5× faster** than [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the pure PyTorch backend (1,093 FPS vs 223 FPS)
+> - **~57× faster** with the fused Triton kernel, without compilation (12,600 FPS vs 223 FPS)
+> - **~80× faster** with `torch.compile` and `bfloat16` (17,820 FPS vs 223 FPS)
 > - **~3.5× less memory** than `DiffDRR` (322 MB vs 1,170 MB peak reserved with `bfloat16` + compile)
 
 <picture>
