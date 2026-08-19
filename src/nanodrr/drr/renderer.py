@@ -1,13 +1,21 @@
-import importlib.util
+import functools
 
 import torch
 from jaxtyping import Float
 
 from ..data import Subject
-from .backends import render_fused, render_torch
+from .backends import fused_supported, render_fused, render_torch
 
 _FUSED_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
-_TRITON_AVAILABLE = importlib.util.find_spec("triton") is not None
+
+
+@functools.cache
+def _triton_available() -> bool:
+    try:
+        from . import _fused  # noqa: F401
+    except Exception:
+        return False
+    return True
 
 
 def render(
@@ -52,13 +60,16 @@ def render(
         backend: `"torch"` uses the reference `grid_sample` implementation;
             `"triton"` uses the fused Triton kernel; `"auto"` (default) picks
             `"triton"` on CUDA with fp32/fp16/bf16 when eligible and `"torch"`
-            otherwise. The backends agree to float32 sampling precision (~1e-5).
+            otherwise. The backends agree to float32 sampling precision (~1e-5);
+            `"triton"` assumes an affine `rt_inv` and has no double backward.
 
     Returns:
         Rendered synthetic radiograph. Shape is `(B, C, H, W)` where `C` is
             the number of classes in the labelmap (or 1 if no labelmap is
             present).
     """
+    if n_samples < 2:
+        raise ValueError("n_samples must be at least 2")
     device, dtype = rt_inv.device, rt_inv.dtype
 
     # Get the ray endpoints in camera coordinates
@@ -72,12 +83,12 @@ def render(
 
     if backend == "auto":
         eligible = (
-            _TRITON_AVAILABLE
-            and rt_inv.is_cuda
+            rt_inv.is_cuda
             and dtype in _FUSED_DTYPES
+            and subject.image.dtype in _FUSED_DTYPES
             and not (torch.are_deterministic_algorithms_enabled() and subject.image.requires_grad)  # gvol uses atomics
-            and subject.image.shape[0] == 1
-            and max(subject.image.numel(), rt_inv.shape[0] * subject.n_classes * height * width) < 2**31
+            and fused_supported(subject, max(rt_inv.shape[0], tgt.shape[0]), height * width)
+            and _triton_available()
         )
         backend = "triton" if eligible else "torch"
     if backend == "triton":

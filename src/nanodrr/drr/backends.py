@@ -1,5 +1,3 @@
-import functools
-
 import torch
 import torch.nn.functional as F
 from jaxtyping import Float
@@ -65,13 +63,10 @@ def render_torch(
     return out.reshape(B, C, height, width)
 
 
-@functools.cache
-def _pix_constants(shape, device, dtype):
-    """Normalized-grid → pixel mapping (align_corners=False): px = u * size/2 + (size - 1)/2."""
-    D, H, W = shape
-    scale = torch.tensor([W / 2, H / 2, D / 2], device=device, dtype=dtype).reshape(3, 1)
-    shift = torch.tensor([(W - 1) / 2, (H - 1) / 2, (D - 1) / 2], device=device, dtype=dtype)
-    return scale, shift
+def fused_supported(subject: Subject, B: int, n_pixels: int) -> bool:
+    """Hard limits of the fused kernel: one volume, int32 indexing."""
+    N = B * n_pixels
+    return subject.image.shape[0] == 1 and max(subject.image.numel(), subject.n_classes * N, 3 * N) < 2**31
 
 
 def render_fused(
@@ -91,27 +86,22 @@ def render_fused(
     """
     from ._fused import fused_raymarch
 
-    if subject.image.shape[0] != 1:
-        raise ValueError("backend='triton' requires an unbatched volume; use backend='torch'")
-
     C = subject.n_classes
     vol = subject.image[0, 0].contiguous()
     lab = subject.label[0, 0].contiguous() if C > 1 else vol
 
-    # Fold the normalized-grid → pixel mapping into the camera → grid transform.
+    # The kernel samples at pixel coordinates, which is exactly world_to_voxel.
     # Geometry is computed in float32: the volume may be stored in half
     # precision, but half-precision sample coordinates cost ~20x accuracy
-    pix_scale, pix_shift = _pix_constants(vol.shape, rt_inv.device, torch.float32)
-    M = (subject.world_to_grid.float() @ rt_inv.float())[:, :3, :] * pix_scale
-    M = torch.cat([M[..., :3], (M[..., 3] + pix_shift)[..., None]], dim=-1)
+    M = (subject.world_to_voxel.float() @ rt_inv.float())[:, :3, :]
 
     # Broadcast the pose batch against shared ray geometry; the kernel
     # requires dense [B, ...] inputs
     B = max(M.shape[0], tgt.shape[0])
     if M.shape[0] != B:
         M = M.expand(B, -1, -1)
-    if max(vol.numel(), B * C * height * width) >= 2**31:
-        raise ValueError("tensor exceeds the kernel's int32 indexing; use backend='torch'")
+    if not fused_supported(subject, B, height * width):
+        raise ValueError("inputs exceed the fused kernel's limits; use backend='torch'")
 
     out = fused_raymarch(
         vol,

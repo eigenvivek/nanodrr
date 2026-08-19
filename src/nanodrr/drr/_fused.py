@@ -232,8 +232,9 @@ def _fused_kernel(
                 gg = tl.sum(go_tile, axis=1)
             else:
                 # Gather go[b, cls, n] per sample: flat in C, unlike a per-lane
-                # class tile, whose register cost grows with CP2
-                gg = tl.load(go_ptr + b * C * N + cls * N + offs, mask=m, other=0.0)
+                # class tile, whose register cost grows with CP2. Out-of-range
+                # labels are masked, matching the forward's silent drop
+                gg = tl.load(go_ptr + b * C * N + cls * N + offs, mask=m & (cls >= 0) & (cls < C), other=0.0)
             g = tl.where(m, gg * step, 0.0).to(tl.float32)
 
             # Analytic trilinear derivatives wrt the pixel-space position
@@ -489,6 +490,11 @@ def _fused_raymarch_bwd(
     need_gcam: bool,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Backward kernel launch, opaque to `torch.compile` like the forward."""
+    if need_gvol and torch.are_deterministic_algorithms_enabled():
+        raise RuntimeError(
+            "Volume gradients on the triton backend use nondeterministic atomics; "
+            "disable deterministic algorithms or use backend='torch'"
+        )
     B, N, _ = tgt.shape
     split = _split(B, _config(N, width)[0], n_samples)
     gM_part = torch.empty(B * _config(N, width)[0] * split, 12, device=M.device, dtype=torch.float32)

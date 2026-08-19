@@ -53,6 +53,18 @@ def _both_backends(subject, k_inv, rt_inv, sdd, height, width, **kwargs):
     return ref, out
 
 
+def _assert_render_parity(ref, out, n_classes):
+    """Class routing is discontinuous at label boundaries, so ~1e-6 coordinate
+    differences between backends may flip single samples between channels."""
+    scale = ref.abs().max()
+    if n_classes == 1:
+        assert ((ref - out).abs().max() / scale).item() < 1e-4
+    else:
+        assert ((ref.sum(dim=1) - out.sum(dim=1)).abs().max() / scale).item() < 1e-4
+        bad = ((ref - out).abs().amax(dim=1) / scale) > 1e-4
+        assert bad.float().mean().item() < 1e-3
+
+
 @cuda
 @pytest.mark.parametrize("orthographic", [False, True])
 @pytest.mark.parametrize("n_classes", [1, 3])
@@ -64,8 +76,7 @@ def test_triton_backend_matches_torch_forward(orthographic, n_classes):
     ref, out = _both_backends(subject, k_inv, rt_inv, sdd, height, width, n_samples=200, orthographic=orthographic)
 
     assert out.shape == ref.shape == (1, n_classes, height, width)
-    scale = ref.abs().max()
-    assert ((ref - out).abs().max() / scale).item() < 1e-4
+    _assert_render_parity(ref, out, n_classes)
 
 
 @cuda
@@ -195,8 +206,32 @@ def test_triton_backend_broadcasts_pose_batch(n_classes):
     ref, out = _both_backends(subject, k_inv, rt_inv, sdd, height, width, n_samples=200)
 
     assert out.shape == ref.shape == (2, n_classes, height, width)
-    scale = ref.abs().max()
-    assert ((ref - out).abs().max() / scale).item() < 1e-4
+    _assert_render_parity(ref, out, n_classes)
+
+
+@cuda
+def test_triton_out_of_range_labels_are_safe():
+    """Labels >= n_classes are dropped in forward and masked in backward."""
+    device = torch.device("cuda")
+    subject = make_random_subject(n_classes=5).to(device)
+    subject.n_classes = 3  # fewer channels than the labelmap contains
+    k_inv, rt_inv, sdd, height, width = make_camera(device)
+
+    rt = rt_inv.clone().requires_grad_(True)
+    out = render(subject, k_inv, rt, sdd, height, width, n_samples=200, backend="triton")
+    out.sum().backward()
+
+    assert out.shape[1] == 3
+    assert torch.isfinite(out).all()
+    assert torch.isfinite(rt.grad).all()
+
+
+def test_invalid_n_samples_raises():
+    subject = make_random_subject()
+    k_inv, rt_inv, sdd, height, width = make_camera(torch.device("cpu"))
+
+    with pytest.raises(ValueError, match="n_samples"):
+        render(subject, k_inv, rt_inv, sdd, height, width, n_samples=1)
 
 
 def test_auto_backend_works_on_cpu():
