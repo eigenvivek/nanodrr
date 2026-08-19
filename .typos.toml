@@ -1,1 +1,5 @@
 [default.extend-words]
+
+[default.extend-identifiers]
+iy = "iy"
+iz = "iz"
