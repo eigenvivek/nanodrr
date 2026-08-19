@@ -101,6 +101,11 @@ def plot(df: pd.DataFrame, output: str) -> None:
         axs[0].format(
             title="Rendering Speed (↑)",
             ylabel="Frames per Second [FPS, GPU time]",
+            yscale="log",
+            ylim=(100, 10000),
+            yticks=[100, 200, 500, 1000, 2000, 5000, 10000],
+            yticklabels=["100", "200", "500", "1,000", "2,000", "5,000", "10,000"],
+            ytickminor=False,
             xlabel="PyTorch Version",
             xticks=x,
             xticklabels=pt_labels,
