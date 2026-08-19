@@ -1,9 +1,13 @@
+import importlib.util
+
 import torch
-import torch.nn.functional as F
 from jaxtyping import Float
 
 from ..data import Subject
-from ..geometry import transform_point
+from .backends import render_fused, render_torch
+
+_FUSED_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
+_TRITON_AVAILABLE = importlib.util.find_spec("triton") is not None
 
 
 def render(
@@ -17,6 +21,7 @@ def render(
     orthographic: bool = False,
     src: Float[torch.Tensor, "B (H W) 3"] | None = None,
     tgt: Float[torch.Tensor, "B (H W) 3"] | None = None,
+    backend: str = "auto",
 ) -> Float[torch.Tensor, "B C H W"]:
     """Differentiable ray marching through a volume and optional labelmap.
 
@@ -40,10 +45,14 @@ def render(
         n_samples: Number of samples to take along each ray. Higher values
             improve accuracy at the cost of memory and compute.
         orthographic: Render with parallel beams instead of cone beams.
-        src: Pre-computed ray source positions in world coordinates. If `None`,
+        src: Pre-computed ray source positions in camera coordinates. If `None`,
             computed from `k_inv` and `rt_inv`.
         tgt: Pre-computed ray target positions (detector pixel locations) in
-            world coordinates. If `None`, computed from `k_inv` and `rt_inv`.
+            camera coordinates. If `None`, computed from `k_inv` and `rt_inv`.
+        backend: `"torch"` uses the reference `grid_sample` implementation;
+            `"triton"` uses the fused Triton kernel; `"auto"` (default) picks
+            `"triton"` on CUDA with fp32/fp16/bf16 when eligible and `"torch"`
+            otherwise. The backends agree to float32 sampling precision (~1e-5).
 
     Returns:
         Rendered synthetic radiograph. Shape is `(B, C, H, W)` where `C` is
@@ -51,9 +60,6 @@ def render(
             present).
     """
     device, dtype = rt_inv.device, rt_inv.dtype
-    B = rt_inv.shape[0]
-    C = subject.n_classes
-    N = height * width
 
     # Get the ray endpoints in camera coordinates
     if tgt is None:
@@ -64,44 +70,21 @@ def render(
     # Compute step size [mm] in camera space
     step_size = (tgt - src).norm(dim=-1) / float(n_samples - 1)
 
-    # Change coordinates: camera → world → voxel → normalized grid
-    xform = subject.world_to_grid @ rt_inv
-    src = transform_point(xform, src)
-    tgt = transform_point(xform, tgt)
-
-    # Linearly interpolate sample points along each ray
-    t = torch.linspace(0, 1, n_samples, device=device, dtype=src.dtype)
-    pts = torch.lerp(
-        src[:, None, :, None],
-        tgt[:, None, :, None],
-        t[None, :, None, None, None],
-    )
-
-    # Sample the volume
-    img = F.grid_sample(
-        subject.image.expand(B, -1, -1, -1, -1),
-        pts,
-        mode="bilinear",
-        align_corners=False,
-    )[:, 0, ..., 0]  # [B, n_samples, N]
-
-    if C == 1:  # Compute whole-volume ray marching
-        img = img.sum(dim=1, keepdim=True) * step_size[:, None, :]
-        return img.reshape(B, C, height, width)
-
-    # Sample the mask
-    idx = F.grid_sample(
-        subject.label.expand(B, -1, -1, -1, -1),
-        pts,
-        mode="nearest",
-        align_corners=False,
-    )[:, 0, ..., 0].long()  # [B, n_samples, N]
-
-    # Compute the structure-specific ray marching
-    out = torch.zeros(B, C, N, device=img.device, dtype=img.dtype)
-    out.scatter_add_(1, idx, img)
-    out = out * step_size[:, None, :]
-    return out.reshape(B, C, height, width)
+    if backend == "auto":
+        eligible = (
+            _TRITON_AVAILABLE
+            and rt_inv.is_cuda
+            and dtype in _FUSED_DTYPES
+            and not torch.are_deterministic_algorithms_enabled()  # the kernel uses atomics
+            and subject.image.shape[0] == 1
+            and max(subject.image.numel(), rt_inv.shape[0] * subject.n_classes * height * width) < 2**31
+        )
+        backend = "triton" if eligible else "torch"
+    if backend == "triton":
+        return render_fused(subject, rt_inv, src, tgt, step_size, n_samples, height, width)
+    if backend == "torch":
+        return render_torch(subject, rt_inv, src, tgt, step_size, n_samples, height, width)
+    raise ValueError(f"Unknown backend {backend!r}; expected 'auto', 'torch', or 'triton'")
 
 
 def _make_tgt(
