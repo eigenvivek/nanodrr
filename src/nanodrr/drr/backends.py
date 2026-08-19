@@ -120,5 +120,6 @@ def render_fused(
         step_size.expand(B, -1).contiguous(),
         n_samples,
         C,
+        width,
     )
     return out.reshape(B, C, height, width)

@@ -75,7 +75,7 @@ def render(
             _TRITON_AVAILABLE
             and rt_inv.is_cuda
             and dtype in _FUSED_DTYPES
-            and not torch.are_deterministic_algorithms_enabled()  # the kernel uses atomics
+            and not (torch.are_deterministic_algorithms_enabled() and subject.image.requires_grad)  # gvol uses atomics
             and subject.image.shape[0] == 1
             and max(subject.image.numel(), rt_inv.shape[0] * subject.n_classes * height * width) < 2**31
         )

@@ -4,6 +4,8 @@ import triton.language as tl
 
 _BLOCK = 128
 _WARPS = 4
+_TILE_W = 16
+_MARGIN = 1.0  # extra voxels around the trilinear footprint box used for culling
 
 
 @triton.jit
@@ -15,9 +17,19 @@ def _sample(vol_ptr, ix, iy, iz, D, H, W, m):
 
 
 @triton.jit
-def _round_half_away(x):
-    """Round to nearest, ties away from zero — matches CUDA grid_sampler's ::round."""
-    return tl.where(x >= 0, tl.floor(x + 0.5), -tl.floor(0.5 - x))
+def _axis_range(p0, dp, lo, hi):
+    """Ray-parameter interval over which `lo <= p0 + t * dp <= hi` (per lane)."""
+    safe = tl.where(tl.abs(dp) < 1e-12, 1e-12, dp)
+    t0 = (lo - p0) / safe
+    t1 = (hi - p0) / safe
+    return tl.minimum(t0, t1), tl.maximum(t0, t1)
+
+
+@triton.jit
+def _round_half_even(x):
+    """Round to nearest, ties to even — matches `grid_sample`'s nearest mode."""
+    big = 12582912.0  # 1.5 * 2**23; fp32 addition rounds ties to even for |x| < 2**22
+    return (x.to(tl.float32) + big) - big
 
 
 @triton.jit
@@ -43,11 +55,16 @@ def _fused_kernel(
     inv_s,
     src_ray_stride,
     src_batch_stride,
+    IW,
+    BCN,
     C: tl.constexpr,
     CP2: tl.constexpr,
     BACKWARD: tl.constexpr,
     NEED_GVOL: tl.constexpr,
     NEED_GCAM: tl.constexpr,
+    SPLIT: tl.constexpr,
+    TW: tl.constexpr,
+    MARGIN: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
     """Fused forward (BACKWARD=0) or backward (BACKWARD=1) ray march.
@@ -56,13 +73,37 @@ def _fused_kernel(
     pixel coordinates, so sample `s` sits at `M @ [lerp(src, tgt, t_s), 1]`.
     With a labelmap (C > 1), each sample's intensity is routed to the channel
     given by a nearest-neighbor label lookup at the same position.
+
+    Each program marches BLOCK rays — a (BLOCK // TW) x TW pixel tile of an
+    IW-wide image when TW > 0, else BLOCK consecutive rays — over the k-th of
+    SPLIT chunks of the sample range, writing forward partials to slice k of
+    `out`. Before marching, the loop range is culled to the samples whose
+    trilinear footprint can touch the volume; skipped samples contribute
+    exactly zero, so culling is bitwise-neutral.
     """
     pid = tl.program_id(0)
-    nblocks = tl.cdiv(N, BLOCK)
-    b = pid // nblocks
-    offs = (pid % nblocks) * BLOCK + tl.arange(0, BLOCK)
-    m = offs < N
+    k = pid % SPLIT
+    blk = pid // SPLIT
+    if TW > 0:
+        TH: tl.constexpr = BLOCK // TW
+        tiles_w = tl.cdiv(IW, TW)
+        IH = N // IW
+        nblocks = tiles_w * tl.cdiv(IH, TH)
+        b = blk // nblocks
+        tile = blk % nblocks
+        r = (tile // tiles_w) * TH + tl.arange(0, BLOCK) // TW
+        c = (tile % tiles_w) * TW + tl.arange(0, BLOCK) % TW
+        offs = r * IW + c
+        m = (r < IH) & (c < IW)
+    else:
+        nblocks = tl.cdiv(N, BLOCK)
+        b = blk // nblocks
+        offs = (blk % nblocks) * BLOCK + tl.arange(0, BLOCK)
+        m = offs < N
     base = b * N + offs
+    chunk = tl.cdiv(S, SPLIT)
+    s_lo = k * chunk
+    s_hi = tl.minimum(s_lo + chunk, S)
 
     # M is [B, 3, 4] row-major: fused camera → voxel-pixel affine transform
     Mb = M_ptr + b * 12
@@ -99,6 +140,19 @@ def _fused_kernel(
     dyp = m10 * ex + m11 * ey + m12 * ez
     dzp = m20 * ex + m21 * ey + m22 * ez
 
+    # Cull the sample range to the box outside of which the trilinear footprint
+    # is identically zero
+    tx0, tx1 = _axis_range(p0x, dxp, -1.0 - MARGIN, W + MARGIN)
+    ty0, ty1 = _axis_range(p0y, dyp, -1.0 - MARGIN, H + MARGIN)
+    tz0, tz1 = _axis_range(p0z, dzp, -1.0 - MARGIN, D + MARGIN)
+    t_lo = tl.maximum(tl.maximum(tx0, ty0), tz0)
+    t_hi = tl.minimum(tl.minimum(tx1, ty1), tz1)
+    f_lo = tl.maximum(tl.floor(t_lo / inv_s) - 2.0, 0.0)
+    f_hi = tl.minimum(tl.ceil(t_hi / inv_s) + 3.0, S * 1.0)
+    hit = m & (t_lo <= t_hi) & (f_lo < f_hi)
+    s_lo = tl.maximum(s_lo, tl.min(tl.where(hit, f_lo, S * 1.0).to(tl.int32), axis=0))
+    s_hi = tl.minimum(s_hi, tl.max(tl.where(hit, f_hi, 0.0).to(tl.int32), axis=0))
+
     step = tl.load(step_ptr + base, mask=m, other=0.0)
     classes = tl.arange(0, CP2)
     cmask = classes < C
@@ -131,7 +185,7 @@ def _fused_kernel(
     else:
         acc = tl.zeros([BLOCK, CP2], dtype=tl.float32)
 
-    for s in range(S):
+    for s in range(s_lo, s_hi):
         t = s * inv_s
         x = p0x + t * dxp
         y = p0y + t * dyp
@@ -166,9 +220,9 @@ def _fused_kernel(
         if C == 1:
             cls = tl.zeros([BLOCK], dtype=tl.int32)
         else:
-            rx = _round_half_away(x).to(tl.int32)
-            ry = _round_half_away(y).to(tl.int32)
-            rz = _round_half_away(z).to(tl.int32)
+            rx = _round_half_even(x).to(tl.int32)
+            ry = _round_half_even(y).to(tl.int32)
+            rz = _round_half_even(z).to(tl.int32)
             cls = _sample(lab_ptr, rx, ry, rz, D, H, W, m).to(tl.int32)
 
         if BACKWARD:
@@ -241,19 +295,20 @@ def _fused_kernel(
             acc += val[:, None] * (cls[:, None] == classes[None, :])
 
     if BACKWARD:
-        gMb = gM_ptr + b * 12
-        tl.atomic_add(gMb + 0, tl.sum(a00))
-        tl.atomic_add(gMb + 1, tl.sum(a01))
-        tl.atomic_add(gMb + 2, tl.sum(a02))
-        tl.atomic_add(gMb + 3, tl.sum(a03))
-        tl.atomic_add(gMb + 4, tl.sum(a10))
-        tl.atomic_add(gMb + 5, tl.sum(a11))
-        tl.atomic_add(gMb + 6, tl.sum(a12))
-        tl.atomic_add(gMb + 7, tl.sum(a13))
-        tl.atomic_add(gMb + 8, tl.sum(a20))
-        tl.atomic_add(gMb + 9, tl.sum(a21))
-        tl.atomic_add(gMb + 10, tl.sum(a22))
-        tl.atomic_add(gMb + 11, tl.sum(a23))
+        # Per-program partials, reduced in torch, so the pose gradient is deterministic
+        gMb = gM_ptr + pid * 12
+        tl.store(gMb + 0, tl.sum(a00))
+        tl.store(gMb + 1, tl.sum(a01))
+        tl.store(gMb + 2, tl.sum(a02))
+        tl.store(gMb + 3, tl.sum(a03))
+        tl.store(gMb + 4, tl.sum(a10))
+        tl.store(gMb + 5, tl.sum(a11))
+        tl.store(gMb + 6, tl.sum(a12))
+        tl.store(gMb + 7, tl.sum(a13))
+        tl.store(gMb + 8, tl.sum(a20))
+        tl.store(gMb + 9, tl.sum(a21))
+        tl.store(gMb + 10, tl.sum(a22))
+        tl.store(gMb + 11, tl.sum(a23))
         if NEED_GCAM:
             tl.store(gsrc_ptr + base * 3 + 0, gsx, mask=m)
             tl.store(gsrc_ptr + base * 3 + 1, gsy, mask=m)
@@ -264,10 +319,25 @@ def _fused_kernel(
             tl.store(gstep_ptr + base, astep, mask=m)
     else:
         tl.store(
-            out_ptr + b * C * N + classes[None, :] * N + offs[:, None],
+            out_ptr + k * BCN + b * C * N + classes[None, :] * N + offs[:, None],
             acc * step[:, None],
             mask=m[:, None] & cmask[None, :],
         )
+
+
+def _config(N, width):
+    """Program count and tile width for the ray → program mapping."""
+    if width > 0:
+        return triton.cdiv(width, _TILE_W) * triton.cdiv(N // width, _BLOCK // _TILE_W), _TILE_W
+    return triton.cdiv(N, _BLOCK), 0
+
+
+def _split(B, nblocks, n_samples):
+    """Sample-range split factor: small launches underfill the GPU, so trade
+    partial-sum traffic for parallelism; larger launches already saturate it."""
+    if B * nblocks > 512:
+        return 1
+    return max(1, min(16 if nblocks < 64 else 8, n_samples // 8))
 
 
 def _launch(
@@ -286,6 +356,8 @@ def _launch(
     gstep,
     n_samples,
     n_classes,
+    width,
+    split,
     backward,
     need_gvol,
     need_gcam,
@@ -293,8 +365,9 @@ def _launch(
     """Launch the fused kernel in forward (backward=False) or backward mode."""
     B, N, _ = tgt.shape
     D, H, W = vol.shape
+    nblocks, tw = _config(N, width)
     broadcast_src = src.shape[1] == 1
-    grid = (B * triton.cdiv(N, _BLOCK),)
+    grid = (B * nblocks * split,)
     _fused_kernel[grid](
         vol,
         lab,
@@ -317,11 +390,16 @@ def _launch(
         1.0 / (n_samples - 1),
         0 if broadcast_src else 3,
         3 if broadcast_src else N * 3,
+        width,
+        B * n_classes * N,
         C=n_classes,
         CP2=triton.next_power_of_2(n_classes),
         BACKWARD=backward,
         NEED_GVOL=need_gvol,
         NEED_GCAM=need_gcam,
+        SPLIT=split,
+        TW=tw,
+        MARGIN=_MARGIN,  # ty: ignore[invalid-argument-type]
         BLOCK=_BLOCK,  # ty: ignore[invalid-argument-type]
         num_warps=_WARPS,  # ty: ignore[unknown-argument]
     )
@@ -337,6 +415,7 @@ def fused_raymarch(
     step: torch.Tensor,
     n_samples: int,
     n_classes: int,
+    width: int,
 ) -> torch.Tensor:
     """Fused differentiable ray marching.
 
@@ -346,7 +425,8 @@ def fused_raymarch(
     """
     B, N, _ = tgt.shape
     M = M.contiguous()
-    out = torch.empty(B, n_classes, N, device=vol.device, dtype=vol.dtype)
+    split = _split(B, _config(N, width)[0], n_samples)
+    out = torch.empty(split, B, n_classes, N, device=vol.device, dtype=torch.float32)
     _launch(
         vol,
         lab,
@@ -363,24 +443,28 @@ def fused_raymarch(
         out,  # unused go/grad pointers in the forward pass
         n_samples,
         n_classes,
+        width,
+        split,
         backward=False,
         need_gvol=False,
         need_gcam=False,
     )
-    return out
+    result = out[0] if split == 1 else out.sum(dim=0)
+    return result.to(vol.dtype)
 
 
 @fused_raymarch.register_fake
-def _(vol, lab, M, src, tgt, step, n_samples, n_classes):
+def _(vol, lab, M, src, tgt, step, n_samples, n_classes, width):
     B, N, _ = tgt.shape
     return torch.empty(B, n_classes, N, device=vol.device, dtype=vol.dtype)
 
 
 def _setup_context(ctx, inputs, output):
-    vol, lab, M, src, tgt, step, n_samples, n_classes = inputs
+    vol, lab, M, src, tgt, step, n_samples, n_classes, width = inputs
     ctx.save_for_backward(vol, lab, M.contiguous(), src, tgt, step)
     ctx.n_samples = n_samples
     ctx.n_classes = n_classes
+    ctx.width = width
 
 
 @torch.library.custom_op("nanodrr::fused_raymarch_bwd", mutates_args=())
@@ -394,16 +478,17 @@ def _fused_raymarch_bwd(
     step: torch.Tensor,
     n_samples: int,
     n_classes: int,
+    width: int,
     need_gvol: bool,
     need_gcam: bool,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Backward kernel launch, opaque to `torch.compile` like the forward."""
     B, N, _ = tgt.shape
-    gM = torch.zeros(B, 3, 4, device=M.device, dtype=torch.float32)
-    gvol = torch.zeros_like(vol, dtype=torch.float32) if need_gvol else gM.new_empty(0)
-    gsrc = torch.empty(B, N, 3, device=M.device, dtype=torch.float32) if need_gcam else gM.new_empty(0)
-    gtgt = torch.empty(B, N, 3, device=M.device, dtype=torch.float32) if need_gcam else gM.new_empty(0)
-    gstep = torch.empty(B, N, device=M.device, dtype=torch.float32) if need_gcam else gM.new_empty(0)
+    gM_part = torch.empty(B * _config(N, width)[0], 12, device=M.device, dtype=torch.float32)
+    gvol = torch.zeros_like(vol, dtype=torch.float32) if need_gvol else gM_part.new_empty(0)
+    gsrc = torch.empty(B, N, 3, device=M.device, dtype=torch.float32) if need_gcam else gM_part.new_empty(0)
+    gtgt = torch.empty(B, N, 3, device=M.device, dtype=torch.float32) if need_gcam else gM_part.new_empty(0)
+    gstep = torch.empty(B, N, device=M.device, dtype=torch.float32) if need_gcam else gM_part.new_empty(0)
 
     _launch(
         vol,
@@ -412,24 +497,27 @@ def _fused_raymarch_bwd(
         src,
         tgt,
         step,
-        gM,  # unused out pointer in the backward pass
+        gM_part,  # unused out pointer in the backward pass
         go.contiguous(),
-        gvol if need_gvol else gM,
-        gM,
-        gsrc if need_gcam else gM,
-        gtgt if need_gcam else gM,
-        gstep if need_gcam else gM,
+        gvol if need_gvol else gM_part,
+        gM_part,
+        gsrc if need_gcam else gM_part,
+        gtgt if need_gcam else gM_part,
+        gstep if need_gcam else gM_part,
         n_samples,
         n_classes,
+        width,
+        1,  # per-ray gradient stores would collide across split programs
         backward=True,
         need_gvol=need_gvol,
         need_gcam=need_gcam,
     )
+    gM = gM_part.view(B, -1, 12).sum(dim=1).view(B, 3, 4)
     return gvol, gM, gsrc, gtgt, gstep
 
 
 @_fused_raymarch_bwd.register_fake
-def _(go, vol, lab, M, src, tgt, step, n_samples, n_classes, need_gvol, need_gcam):
+def _(go, vol, lab, M, src, tgt, step, n_samples, n_classes, width, need_gvol, need_gcam):
     B, N, _ = tgt.shape
     gM = torch.empty(B, 3, 4, device=M.device, dtype=torch.float32)
     gvol = torch.empty(vol.shape, device=M.device, dtype=torch.float32) if need_gvol else gM.new_empty(0)
@@ -444,7 +532,7 @@ def _backward(ctx, go):
     need_gvol = ctx.needs_input_grad[0]
     need_gcam = any(ctx.needs_input_grad[i] for i in (3, 4, 5))
     gvol, gM, gsrc, gtgt, gstep = _fused_raymarch_bwd(
-        go, vol, lab, M, src, tgt, step, ctx.n_samples, ctx.n_classes, need_gvol, need_gcam
+        go, vol, lab, M, src, tgt, step, ctx.n_samples, ctx.n_classes, ctx.width, need_gvol, need_gcam
     )
     if need_gcam and src.shape[1] == 1:
         gsrc = gsrc.sum(dim=1, keepdim=True)
@@ -457,6 +545,7 @@ def _backward(ctx, go):
         gstep.to(step.dtype) if need_gcam else None,
         None,  # n_samples
         None,  # n_classes
+        None,  # width
     )
 
 

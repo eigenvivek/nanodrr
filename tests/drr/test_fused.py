@@ -159,6 +159,26 @@ def test_triton_backend_compiles_with_gradients():
 
 
 @cuda
+def test_triton_pose_gradients_deterministic():
+    """`gM` is reduced from per-program partials, so pose gradients are bitwise stable."""
+    device = torch.device("cuda")
+    subject = make_random_subject().to(device)
+    k_inv, rt_inv, sdd, height, width = make_camera(device)
+
+    torch.manual_seed(5)
+    w = torch.randn(1, 1, height, width, device=device)
+
+    grads = []
+    for _ in range(2):
+        rt = rt_inv.clone().requires_grad_(True)
+        out = render(subject, k_inv, rt, sdd, height, width, n_samples=200, backend="triton")
+        (out * w).sum().backward()
+        grads.append(rt.grad.clone())
+
+    torch.testing.assert_close(grads[0], grads[1], rtol=0, atol=0)
+
+
+@cuda
 @pytest.mark.parametrize("n_classes", [1, 3])
 def test_triton_backend_broadcasts_pose_batch(n_classes):
     """Batched rt_inv against a single shared detector (batch-1 k_inv)."""
