@@ -7,6 +7,7 @@
 A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the following improvements:
 
 - Optimized, pure PyTorch implementation (**~5× faster than `DiffDRR` at baseline**)
+- Fused Triton rendering kernel, used by default on CUDA (**up to ~80× faster than `DiffDRR`**)
 - Modular design (freely swap subjects, extrinsics, and intrinsics during rendering)
 - Compatibility with `torch.compile` and mixed precision
 - Extensive type hints with `jaxtyping`
@@ -18,7 +19,7 @@ All projective geometry is implemented internally using the standard [Hartley an
 
 > [!NOTE]
 >
-> On `pytorch<2.9`, `torch.compile` with `bfloat16` is slower than eager due to a CUDA graph capture issue (see [Benchmarks](#benchmarks)). Use `pytorch>=2.9` (Triton ≥3.5) for best results.
+> On `pytorch<2.9`, `torch.compile` with `bfloat16` is slower than eager for the pure PyTorch backend due to a CUDA graph capture issue (see [Benchmarks](#benchmarks)). The fused Triton backend is unaffected.
 
 To strictly install the renderer:
 ```
@@ -35,9 +36,10 @@ pip install "nanodrr[all]"    # All extras
 ## Benchmarks
 
 > [!IMPORTANT]
-> - **~5× faster** than [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) out of the box, without compilation (1,069 FPS vs 212 FPS)
-> - **~8× faster** with `torch.compile` and `bfloat16` on `pytorch>=2.9` (1,764 FPS vs 212 FPS)
-> - **~2.5× less memory** than `DiffDRR` (514 MB vs 1,362 MB peak reserved with `bfloat16` + compile)
+> - **~5× faster** than [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the pure PyTorch backend (1,093 FPS vs 223 FPS)
+> - **~57× faster** with the fused Triton kernel, without compilation (12,600 FPS vs 223 FPS)
+> - **~80× faster** with `torch.compile` and `bfloat16` (17,820 FPS vs 223 FPS)
+> - **~3.5× less memory** than `DiffDRR` (322 MB vs 1,170 MB peak reserved with `bfloat16` + compile)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/images/benchmark_dark.png">
@@ -45,7 +47,7 @@ pip install "nanodrr[all]"    # All extras
   <img alt="Benchmarking runtime, FPS, and memory usage." src="tests/benchmark/benchmark.png">
 </picture>
 
-> *Mean ± std. dev. of 10 runs, 100 loops each. Benchmarked by rendering 200×200 DRRs on an NVIDIA RTX 6000 Ada (48 GB) with Python 3.12. Compile represents `torch.compile(mode="reduce-overhead", fullgraph=True)`. Full experiment at [`tests/benchmark/`](tests/benchmark/).*
+> *FPS computed from per-frame GPU kernel time (`torch.profiler`); median wall-clock timings are also recorded in [`tests/benchmark/benchmark.csv`](tests/benchmark/benchmark.csv). Benchmarked by rendering 200×200 DRRs on an NVIDIA RTX 6000 Ada (48 GB) with Python 3.12. Compile represents `torch.compile(mode="reduce-overhead", fullgraph=True)`. Full experiment at [`tests/benchmark/`](tests/benchmark/).*
 
 ## Docs
 

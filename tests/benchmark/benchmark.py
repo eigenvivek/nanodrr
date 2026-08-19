@@ -1,3 +1,4 @@
+import statistics
 import warnings
 
 import torch
@@ -7,6 +8,16 @@ from nanodrr.data import Subject
 from nanodrr.drr import render
 
 warnings.filterwarnings("ignore", message="dynamo_pgo force disabled")
+
+
+def render_torch(*args):
+    """Reference grid_sample backend (pinned so `auto` doesn't pick triton)."""
+    return render(*args, backend="torch")
+
+
+def render_triton(*args):
+    """Fused Triton backend."""
+    return render(*args, backend="triton")
 
 
 def setup_data(image_path: str, label_path: str | None = None) -> tuple:
@@ -43,6 +54,7 @@ def benchmark(
     num_runs: int = 10,
     num_iterations: int = 100,
     warmup_iterations: int = 25,
+    profile_iterations: int = 30,
 ) -> dict:
     """
     Benchmark a function using CUDA events for accurate GPU timing.
@@ -54,10 +66,12 @@ def benchmark(
         num_runs: Number of runs to average (default: 10)
         num_iterations: Number of iterations per run (default: 100)
         warmup_iterations: Number of warmup iterations (default: 25)
+        profile_iterations: Iterations for the profiler pass measuring pure
+            GPU time (default: 30)
 
     Returns:
-        Dictionary with keys: mean, std, name, peak_allocated_mb,
-        peak_reserved_mb, delta_allocated_mb
+        Dictionary with keys: wall_us, wall_std_us, gpu_us, fps, fps_std,
+        fps_gpu, name, peak_allocated_mb, peak_reserved_mb, delta_allocated_mb
     """
     # Warmup
     for _ in range(warmup_iterations):
@@ -87,20 +101,34 @@ def benchmark(
     mem_after = torch.cuda.memory_allocated()
     delta_allocated = mem_after - mem_before
 
-    mean = sum(times) / len(times)
-    std = (sum((x - mean) ** 2 for x in times) / len(times)) ** 0.5
-
-    # Compute FPS (times are in μs, so 1e6 / μs = fps)
+    # Median wall time: contention only slows runs down, so the median tracks
+    # the uncontended machine better than the mean
+    wall_us = statistics.median(times)
+    wall_std = statistics.pstdev(times)
+    fps = 1e6 / wall_us
     fps_values = [1e6 / t for t in times]
-    fps_mean = sum(fps_values) / len(fps_values)
-    fps_std = (sum((x - fps_mean) ** 2 for x in fps_values) / len(fps_values)) ** 0.5
+    fps_std = statistics.pstdev(fps_values)
+
+    # GPU time from a profiler pass; the gap between wall_us and gpu_us is
+    # CPU launch overhead
+    from torch.profiler import ProfilerActivity, profile
+
+    with profile(activities=[ProfilerActivity.CUDA]) as prof:
+        for _ in range(profile_iterations):
+            func(*args)
+        torch.cuda.synchronize()
+    gpu_us = (
+        sum(getattr(e, "device_time_total", getattr(e, "cuda_time_total", 0)) for e in prof.key_averages())
+        / profile_iterations
+    )
+    fps_gpu = 1e6 / gpu_us if gpu_us > 0 else float("nan")
 
     print(f"\n{name}:")
     print(
-        f"  {mean:,.0f} μs ± {std:,.0f} μs per loop "
-        f"(mean ± std. dev. of {num_runs} runs, {num_iterations:,} loops each)"
+        f"  wall: {wall_us:,.0f} μs (median of {num_runs} runs ± {wall_std:,.0f} μs, "
+        f"{num_iterations:,} loops each) → {fps:,.0f} FPS"
     )
-    print(f"  {fps_mean:,.0f} ± {fps_std:,.0f} FPS")
+    print(f"  gpu:  {gpu_us:,.0f} μs → {fps_gpu:,.0f} FPS (launch overhead: {wall_us - gpu_us:+,.0f} μs)")
     print(
         f"  Peak memory allocated: {peak_allocated / 1024**2:,.1f} MB | "
         f"Peak memory reserved: {peak_reserved / 1024**2:,.1f} MB | "
@@ -108,10 +136,12 @@ def benchmark(
     )
 
     return {
-        "mean": mean,
-        "std": std,
-        "fps_mean": fps_mean,
+        "wall_us": wall_us,
+        "wall_std_us": wall_std,
+        "gpu_us": gpu_us,
+        "fps": fps,
         "fps_std": fps_std,
+        "fps_gpu": fps_gpu,
         "name": name,
         "peak_allocated_mb": peak_allocated / 1024**2,
         "peak_reserved_mb": peak_reserved / 1024**2,
@@ -120,7 +150,12 @@ def benchmark(
 
 
 def main():
+    import argparse
     import sys
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", "-o", default="benchmark_results.csv", help="CSV output path")
+    args = parser.parse_args()
 
     print(f"Python version: {sys.version}")
     print(f"PyTorch version: {torch.__version__}")
@@ -145,7 +180,7 @@ def main():
     # Benchmark float32
     results.append(
         benchmark(
-            render,
+            render_torch,
             subject,
             k_inv,
             rt_inv,
@@ -158,7 +193,7 @@ def main():
 
     # Benchmark float32 + compile
     torch._dynamo.reset()
-    render_compiled = torch.compile(render, mode="reduce-overhead", fullgraph=True)
+    render_compiled = torch.compile(render_torch, mode="reduce-overhead", fullgraph=True)
     results.append(
         benchmark(
             render_compiled,
@@ -172,6 +207,36 @@ def main():
         )
     )
 
+    # Benchmark triton float32 (before the in-place bfloat16 cast below)
+    results.append(
+        benchmark(
+            render_triton,
+            subject,
+            k_inv,
+            rt_inv,
+            sdd,
+            height,
+            width,
+            name="nanodrr triton (float32)",
+        )
+    )
+
+    # Benchmark triton float32 + compile
+    torch._dynamo.reset()
+    render_triton_compiled = torch.compile(render_triton, mode="reduce-overhead", fullgraph=True)
+    results.append(
+        benchmark(
+            render_triton_compiled,
+            subject,
+            k_inv,
+            rt_inv,
+            sdd,
+            height,
+            width,
+            name="nanodrr triton + compile (float32)",
+        )
+    )
+
     # Benchmark bfloat16
     torch._dynamo.reset()
     subject_bf16 = subject.bfloat16()
@@ -181,7 +246,7 @@ def main():
 
     results.append(
         benchmark(
-            render,
+            render_torch,
             subject_bf16,
             k_inv_bf16,
             rt_inv_bf16,
@@ -194,7 +259,7 @@ def main():
 
     # Benchmark bfloat16 + compile
     torch._dynamo.reset()
-    render_bf16_compiled = torch.compile(render, mode="reduce-overhead", fullgraph=True)
+    render_bf16_compiled = torch.compile(render_torch, mode="reduce-overhead", fullgraph=True)
     results.append(
         benchmark(
             render_bf16_compiled,
@@ -205,6 +270,36 @@ def main():
             height,
             width,
             name="nanodrr + compile (bfloat16)",
+        )
+    )
+
+    # Benchmark triton bfloat16
+    results.append(
+        benchmark(
+            render_triton,
+            subject_bf16,
+            k_inv_bf16,
+            rt_inv_bf16,
+            sdd_bf16,
+            height,
+            width,
+            name="nanodrr triton (bfloat16)",
+        )
+    )
+
+    # Benchmark triton bfloat16 + compile
+    torch._dynamo.reset()
+    render_triton_bf16_compiled = torch.compile(render_triton, mode="reduce-overhead", fullgraph=True)
+    results.append(
+        benchmark(
+            render_triton_bf16_compiled,
+            subject_bf16,
+            k_inv_bf16,
+            rt_inv_bf16,
+            sdd_bf16,
+            height,
+            width,
+            name="nanodrr triton + compile (bfloat16)",
         )
     )
 
@@ -231,13 +326,8 @@ def main():
     )
 
     # Save results to CSV
-    import argparse
     import csv
     import os
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output", "-o", default="benchmark_results.csv", help="CSV output path")
-    args = parser.parse_args()
 
     # Version metadata for each row
     try:
@@ -258,10 +348,12 @@ def main():
         "cuda_version",
         "triton_version",
         "name",
-        "mean_us",
-        "std_us",
-        "fps_mean",
+        "wall_us",
+        "wall_std_us",
+        "gpu_us",
+        "fps",
         "fps_std",
+        "fps_gpu",
         "peak_allocated_mb",
         "peak_reserved_mb",
         "delta_allocated_mb",
@@ -277,10 +369,12 @@ def main():
                 {
                     **meta,
                     "name": r["name"],
-                    "mean_us": f"{r['mean']:.1f}",
-                    "std_us": f"{r['std']:.1f}",
-                    "fps_mean": f"{r['fps_mean']:.1f}",
+                    "wall_us": f"{r['wall_us']:.1f}",
+                    "wall_std_us": f"{r['wall_std_us']:.1f}",
+                    "gpu_us": f"{r['gpu_us']:.1f}",
+                    "fps": f"{r['fps']:.1f}",
                     "fps_std": f"{r['fps_std']:.1f}",
+                    "fps_gpu": f"{r['fps_gpu']:.1f}",
                     "peak_allocated_mb": f"{r['peak_allocated_mb']:.1f}",
                     "peak_reserved_mb": f"{r['peak_reserved_mb']:.1f}",
                     "delta_allocated_mb": f"{r['delta_allocated_mb']:.1f}",

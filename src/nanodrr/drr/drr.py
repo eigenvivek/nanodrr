@@ -71,6 +71,7 @@ class DRR(torch.nn.Module):
         subject: Subject,
         rt_inv: Float[torch.Tensor, "B 4 4"],
         n_samples: int = 500,
+        backend: str = "auto",
     ):
         return render(
             subject,
@@ -83,6 +84,7 @@ class DRR(torch.nn.Module):
             self.orthographic,
             self.src,
             self.tgt,
+            backend,
         )
 
     @classmethod
