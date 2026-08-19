@@ -98,9 +98,11 @@ def render_fused(
     vol = subject.image[0, 0].contiguous()
     lab = subject.label[0, 0].contiguous() if C > 1 else vol
 
-    # Fold the normalized-grid → pixel mapping into the camera → grid transform
-    pix_scale, pix_shift = _pix_constants(vol.shape, rt_inv.device, rt_inv.dtype)
-    M = (subject.world_to_grid @ rt_inv)[:, :3, :] * pix_scale
+    # Fold the normalized-grid → pixel mapping into the camera → grid transform.
+    # Geometry is computed in float32: the volume may be stored in half
+    # precision, but half-precision sample coordinates cost ~20x accuracy
+    pix_scale, pix_shift = _pix_constants(vol.shape, rt_inv.device, torch.float32)
+    M = (subject.world_to_grid.float() @ rt_inv.float())[:, :3, :] * pix_scale
     M = torch.cat([M[..., :3], (M[..., 3] + pix_shift)[..., None]], dim=-1)
 
     # Broadcast the pose batch against shared ray geometry; the kernel
@@ -115,9 +117,9 @@ def render_fused(
         vol,
         lab,
         M,
-        src.expand(B, -1, -1).contiguous(),
-        tgt.expand(B, -1, -1).contiguous(),
-        step_size.expand(B, -1).contiguous(),
+        src.expand(B, -1, -1).float().contiguous(),
+        tgt.expand(B, -1, -1).float().contiguous(),
+        step_size.expand(B, -1).float().contiguous(),
         n_samples,
         C,
         width,

@@ -57,6 +57,7 @@ def _fused_kernel(
     src_batch_stride,
     IW,
     BCN,
+    BN,
     C: tl.constexpr,
     CP2: tl.constexpr,
     BACKWARD: tl.constexpr,
@@ -158,11 +159,12 @@ def _fused_kernel(
     cmask = classes < C
 
     if BACKWARD:
-        go_tile = tl.load(
-            go_ptr + b * C * N + classes[None, :] * N + offs[:, None],
-            mask=m[:, None] & cmask[None, :],
-            other=0.0,
-        )
+        if C == 1:
+            go_tile = tl.load(
+                go_ptr + b * C * N + classes[None, :] * N + offs[:, None],
+                mask=m[:, None] & cmask[None, :],
+                other=0.0,
+            )
         a00 = tl.zeros([BLOCK], dtype=tl.float32)
         a01 = tl.zeros([BLOCK], dtype=tl.float32)
         a02 = tl.zeros([BLOCK], dtype=tl.float32)
@@ -229,7 +231,9 @@ def _fused_kernel(
             if C == 1:
                 gg = tl.sum(go_tile, axis=1)
             else:
-                gg = tl.sum(go_tile * (cls[:, None] == classes[None, :]), axis=1)
+                # Gather go[b, cls, n] per sample: flat in C, unlike a per-lane
+                # class tile, whose register cost grows with CP2
+                gg = tl.load(go_ptr + b * C * N + cls * N + offs, mask=m, other=0.0)
             g = tl.where(m, gg * step, 0.0).to(tl.float32)
 
             # Analytic trilinear derivatives wrt the pixel-space position
@@ -310,13 +314,14 @@ def _fused_kernel(
         tl.store(gMb + 10, tl.sum(a22))
         tl.store(gMb + 11, tl.sum(a23))
         if NEED_GCAM:
-            tl.store(gsrc_ptr + base * 3 + 0, gsx, mask=m)
-            tl.store(gsrc_ptr + base * 3 + 1, gsy, mask=m)
-            tl.store(gsrc_ptr + base * 3 + 2, gsz, mask=m)
-            tl.store(gtgt_ptr + base * 3 + 0, gtx, mask=m)
-            tl.store(gtgt_ptr + base * 3 + 1, gty, mask=m)
-            tl.store(gtgt_ptr + base * 3 + 2, gtz, mask=m)
-            tl.store(gstep_ptr + base, astep, mask=m)
+            gc = k * BN * 3 + base * 3
+            tl.store(gsrc_ptr + gc + 0, gsx, mask=m)
+            tl.store(gsrc_ptr + gc + 1, gsy, mask=m)
+            tl.store(gsrc_ptr + gc + 2, gsz, mask=m)
+            tl.store(gtgt_ptr + gc + 0, gtx, mask=m)
+            tl.store(gtgt_ptr + gc + 1, gty, mask=m)
+            tl.store(gtgt_ptr + gc + 2, gtz, mask=m)
+            tl.store(gstep_ptr + k * BN + base, astep, mask=m)
     else:
         tl.store(
             out_ptr + k * BCN + b * C * N + classes[None, :] * N + offs[:, None],
@@ -335,7 +340,7 @@ def _config(N, width):
 def _split(B, nblocks, n_samples):
     """Sample-range split factor: small launches underfill the GPU, so trade
     partial-sum traffic for parallelism; larger launches already saturate it."""
-    if B * nblocks > 512:
+    if B * nblocks > 384:
         return 1
     return max(1, min(16 if nblocks < 64 else 8, n_samples // 8))
 
@@ -392,6 +397,7 @@ def _launch(
         3 if broadcast_src else N * 3,
         width,
         B * n_classes * N,
+        B * N,
         C=n_classes,
         CP2=triton.next_power_of_2(n_classes),
         BACKWARD=backward,
@@ -484,11 +490,12 @@ def _fused_raymarch_bwd(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Backward kernel launch, opaque to `torch.compile` like the forward."""
     B, N, _ = tgt.shape
-    gM_part = torch.empty(B * _config(N, width)[0], 12, device=M.device, dtype=torch.float32)
+    split = _split(B, _config(N, width)[0], n_samples)
+    gM_part = torch.empty(B * _config(N, width)[0] * split, 12, device=M.device, dtype=torch.float32)
     gvol = torch.zeros_like(vol, dtype=torch.float32) if need_gvol else gM_part.new_empty(0)
-    gsrc = torch.empty(B, N, 3, device=M.device, dtype=torch.float32) if need_gcam else gM_part.new_empty(0)
-    gtgt = torch.empty(B, N, 3, device=M.device, dtype=torch.float32) if need_gcam else gM_part.new_empty(0)
-    gstep = torch.empty(B, N, device=M.device, dtype=torch.float32) if need_gcam else gM_part.new_empty(0)
+    gsrc = torch.empty(split, B, N, 3, device=M.device, dtype=torch.float32) if need_gcam else gM_part.new_empty(0)
+    gtgt = torch.empty(split, B, N, 3, device=M.device, dtype=torch.float32) if need_gcam else gM_part.new_empty(0)
+    gstep = torch.empty(split, B, N, device=M.device, dtype=torch.float32) if need_gcam else gM_part.new_empty(0)
 
     _launch(
         vol,
@@ -507,12 +514,14 @@ def _fused_raymarch_bwd(
         n_samples,
         n_classes,
         width,
-        1,  # per-ray gradient stores would collide across split programs
+        split,
         backward=True,
         need_gvol=need_gvol,
         need_gcam=need_gcam,
     )
     gM = gM_part.view(B, -1, 12).sum(dim=1).view(B, 3, 4)
+    if need_gcam:
+        gsrc, gtgt, gstep = gsrc.sum(dim=0), gtgt.sum(dim=0), gstep.sum(dim=0)
     return gvol, gM, gsrc, gtgt, gstep
 
 
