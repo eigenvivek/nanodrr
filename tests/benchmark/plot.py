@@ -77,11 +77,28 @@ def get_values(df, method, pt_versions, col, err_col=None):
     return vals, errs
 
 
+def select_device(df: pd.DataFrame, device: str | None) -> pd.DataFrame:
+    """Keep the rows of one device. CSVs written before the `device` column existed are CUDA-only."""
+    if "device" not in df:
+        return df
+    devices = list(df["device"].dropna().unique())
+    if device is None:
+        device = "cuda" if "cuda" in devices else devices[0]
+    if device not in devices:
+        raise SystemExit(f"No rows for device {device!r} (have: {', '.join(map(str, devices))})")
+    return df[df["device"] == device]
+
+
 def plot(df: pd.DataFrame, output: str) -> None:
     methods = [m for m in METHOD_ORDER if m in df["name"].unique()]
     pt_versions = sorted(df["pytorch_version"].unique(), key=lambda v: list(map(int, v.split("+")[0].split(".")[:2])))
     pt_labels = [v.split("+")[0].rsplit(".", 1)[0] for v in pt_versions]
     x = np.arange(len(pt_versions))
+
+    # CPU/MPS have no profiler pass (empty `gpu_us`), so fall back to wall-clock FPS
+    has_gpu_time = df["fps_gpu"].notna().any()
+    fps_col = "fps_gpu" if has_gpu_time else "fps"
+    has_memory = df["peak_reserved_mb"].notna().any()
 
     for theme in ("light", "dark"):
         is_dark = theme == "dark"
@@ -91,27 +108,31 @@ def plot(df: pd.DataFrame, output: str) -> None:
 
         handles = {}
         for method in methods:
-            kw = dict(color=colors[method], marker=MARKERS[method], linestyle=LINESTYLES[method], markersize=5)
+            kw = {"color": colors[method], "marker": MARKERS[method], "linestyle": LINESTYLES[method], "markersize": 5}
             # GPU-time FPS is stable across runs; wall time is launch-bound
-            vals, _ = get_values(df, method, pt_versions, "fps_gpu")
+            vals, _ = get_values(df, method, pt_versions, fps_col)
             handles[method] = axs[0].errorbar(x, vals, label=format_label(method), **kw)
             vals, _ = get_values(df, method, pt_versions, "peak_reserved_mb")
             axs[1].errorbar(x, vals, **kw)
 
+        speed_fmt = {"yscale": "log"}
+        if has_gpu_time:  # fixed axis tuned for CUDA GPU-time FPS
+            speed_fmt |= {
+                "ylim": (100, 20000),
+                "yticks": [100, 200, 500, 1000, 2000, 5000, 10000, 20000],
+                "yticklabels": ["100", "200", "500", "1,000", "2,000", "5,000", "10,000", "20,000"],
+                "ytickminor": False,
+            }
         axs[0].format(
             title="Rendering Speed (↑)",
-            ylabel="Frames per Second [FPS, GPU time]",
-            yscale="log",
-            ylim=(100, 20000),
-            yticks=[100, 200, 500, 1000, 2000, 5000, 10000, 20000],
-            yticklabels=["100", "200", "500", "1,000", "2,000", "5,000", "10,000", "20,000"],
-            ytickminor=False,
+            ylabel=f"Frames per Second [FPS, {'GPU' if has_gpu_time else 'wall'} time]",
             xlabel="PyTorch Version",
             xticks=x,
             xticklabels=pt_labels,
+            **speed_fmt,
         )
         axs[1].format(
-            title="GPU Memory Usage (↓)",
+            title="GPU Memory Usage (↓)" if has_memory else "GPU Memory Usage (not recorded)",
             ylabel="Peak Memory Reserved [MB]",
             xlabel="PyTorch Version",
             xticks=x,
@@ -158,8 +179,9 @@ def main():
     parser.add_argument(
         "--output", "-o", default=str(Path(__file__).parent.parent.parent / "docs/assets/images/benchmark.png")
     )
+    parser.add_argument("--device", default=None, help="Device rows to plot (default: cuda if present, else the first)")
     args = parser.parse_args()
-    plot(pd.read_csv(args.input), args.output)
+    plot(select_device(pd.read_csv(args.input), args.device), args.output)
 
 
 if __name__ == "__main__":
