@@ -8,6 +8,7 @@ A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenv
 
 - Optimized, pure PyTorch implementation (**~5× faster than `DiffDRR` at baseline**)
 - Fused Triton rendering kernel, used by default on CUDA (**up to ~80× faster than `DiffDRR`**)
+- Runs on CUDA, Apple silicon (MPS), and CPU
 - Modular design (freely swap subjects, extrinsics, and intrinsics during rendering)
 - Compatibility with `torch.compile` and mixed precision
 - Extensive type hints with `jaxtyping`
@@ -31,6 +32,21 @@ To install the optional [plotting](https://vivekg.dev/nanodrr/api/plot/) or [3D 
 pip install "nanodrr[plot]"   # 2D visualization (matplotlib, opencv)
 pip install "nanodrr[scene]"  # 3D visualization (VTK, PyVista)
 pip install "nanodrr[all]"    # All extras
+```
+
+## Devices
+
+| Device | Backend | Forward rendering | Gradients |
+| --- | --- | --- | --- |
+| CUDA | fused Triton kernel (default) or pure PyTorch | ✅ | ✅ |
+| CPU | pure PyTorch | ✅ | ✅ |
+| Apple silicon (MPS) | pure PyTorch | ✅ (`pytorch>=2.10`) | ❌ |
+
+On MPS, rendering works with or without a labelmap, but differentiable rendering (e.g., registration, as in the `optim` tutorial) is not yet supported because PyTorch has no `grid_sampler_3d_backward` for MPS. Nearest-neighbor labelmap sampling, which MPS also lacks, is handled by a small built-in workaround. The Triton kernel and `torch.compile(mode="reduce-overhead")` are CUDA-only.
+
+To benchmark on your own machine (the DiffDRR baseline is optional, add it with `--with diffdrr`):
+```
+uv run python tests/benchmark/benchmark.py --device all --output results.csv
 ```
 
 ## Benchmarks
