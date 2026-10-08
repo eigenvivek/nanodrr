@@ -226,26 +226,28 @@ def test_triton_out_of_range_labels_are_safe():
     assert torch.isfinite(rt.grad).all()
 
 
-def test_invalid_n_samples_raises():
-    subject = make_random_subject()
-    k_inv, rt_inv, sdd, height, width = make_camera(torch.device("cpu"))
+def test_invalid_n_samples_raises(device):
+    subject = make_random_subject().to(device)
+    k_inv, rt_inv, sdd, height, width = make_camera(device)
 
     with pytest.raises(ValueError, match="n_samples"):
         render(subject, k_inv, rt_inv, sdd, height, width, n_samples=1)
 
 
-def test_auto_backend_works_on_cpu():
-    subject = make_random_subject()
-    k_inv, rt_inv, sdd, height, width = make_camera(torch.device("cpu"))
+def test_auto_backend_falls_back_to_torch(device):
+    if device.type == "cuda":
+        pytest.skip("auto selects the triton backend on CUDA")
+    subject = make_random_subject().to(device)
+    k_inv, rt_inv, sdd, height, width = make_camera(device)
 
     ref = render(subject, k_inv, rt_inv, sdd, height, width, n_samples=64, backend="torch")
     out = render(subject, k_inv, rt_inv, sdd, height, width, n_samples=64, backend="auto")
     torch.testing.assert_close(ref, out, rtol=0, atol=0)
 
 
-def test_unknown_backend_raises():
-    subject = make_random_subject()
-    k_inv, rt_inv, sdd, height, width = make_camera(torch.device("cpu"))
+def test_unknown_backend_raises(device):
+    subject = make_random_subject().to(device)
+    k_inv, rt_inv, sdd, height, width = make_camera(device)
 
     with pytest.raises(ValueError, match="backend"):
         render(subject, k_inv, rt_inv, sdd, height, width, backend="cuda")
