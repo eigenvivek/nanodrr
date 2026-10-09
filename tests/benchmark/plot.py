@@ -77,6 +77,22 @@ def get_values(df, method, pt_versions, col, err_col=None):
     return vals, errs
 
 
+def select_rows(df: pd.DataFrame, task: str = "forward", n_classes: int = 1) -> pd.DataFrame:
+    """Keep the CUDA rows of one task and class count, so each (version, method) is unique.
+
+    CSVs written before these columns existed are single-class, forward-only and CUDA-only.
+    """
+    if "task" in df:
+        df = df[df["task"] == task]
+    if "n_classes" in df:
+        df = df[df["n_classes"] == n_classes]
+    if "device" in df:
+        df = df[df["device"] == "cuda"]
+    if df.empty:
+        raise SystemExit(f"No CUDA rows for task {task!r} with {n_classes} class(es)")
+    return df
+
+
 def plot(df: pd.DataFrame, output: str) -> None:
     methods = [m for m in METHOD_ORDER if m in df["name"].unique()]
     pt_versions = sorted(df["pytorch_version"].unique(), key=lambda v: list(map(int, v.split("+")[0].split(".")[:2])))
@@ -102,9 +118,9 @@ def plot(df: pd.DataFrame, output: str) -> None:
             title="Rendering Speed (↑)",
             ylabel="Frames per Second [FPS, GPU time]",
             yscale="log",
-            ylim=(100, 20000),
-            yticks=[100, 200, 500, 1000, 2000, 5000, 10000, 20000],
-            yticklabels=["100", "200", "500", "1,000", "2,000", "5,000", "10,000", "20,000"],
+            ylim=(100, 50000),
+            yticks=[100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000],
+            yticklabels=["100", "200", "500", "1,000", "2,000", "5,000", "10,000", "20,000", "50,000"],
             ytickminor=False,
             xlabel="PyTorch Version",
             xticks=x,
@@ -158,8 +174,10 @@ def main():
     parser.add_argument(
         "--output", "-o", default=str(Path(__file__).parent.parent.parent / "docs/assets/images/benchmark.png")
     )
+    parser.add_argument("--task", default="forward", choices=["forward", "forward+backward"], help="Task to plot")
+    parser.add_argument("--classes", type=int, default=1, help="Number of classes to plot")
     args = parser.parse_args()
-    plot(pd.read_csv(args.input), args.output)
+    plot(select_rows(pd.read_csv(args.input), args.task, args.classes), args.output)
 
 
 if __name__ == "__main__":

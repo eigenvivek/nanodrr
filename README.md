@@ -11,6 +11,7 @@ A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenv
 - Modular design (freely swap subjects, extrinsics, and intrinsics during rendering)
 - Compatibility with `torch.compile` and mixed precision
 - Extensive type hints with `jaxtyping`
+- Runs on CUDA, Apple silicon (MPS), and CPU
 - Standard Python package structure managed with `uv`
 
 All projective geometry is implemented internally using the standard [Hartley and Zisserman](https://www.cambridge.org/core/books/multiple-view-geometry-in-computer-vision/0B6F289C78B2B23F596CAA76D3D43F7A) pinhole camera formulation.
@@ -20,6 +21,8 @@ All projective geometry is implemented internally using the standard [Hartley an
 > [!NOTE]
 >
 > On `pytorch<2.9`, `torch.compile` with `bfloat16` is slower than eager for the pure PyTorch backend due to a CUDA graph capture issue (see [Benchmarks](#benchmarks)). The fused Triton backend is unaffected.
+> 
+> MPS-accelerated differentiable rendering requires `pytorch>=2.13`, which is the first release with native MPS kernels for `grid_sample` backwards and 3D nearest-neighbor sampling.
 
 To strictly install the renderer:
 ```

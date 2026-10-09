@@ -49,23 +49,23 @@ def make_unit_impulse_subject() -> Subject:
     )
 
 
-def test_single_ray_integral_equals_one():
+def test_single_ray_integral_equals_one(device):
     """A single ray through the central voxel should integrate to 1."""
 
-    subject = make_unit_impulse_subject()
+    subject = make_unit_impulse_subject().to(device)
 
     # Batch size 1, single detector pixel (H=W=1 → N=1)
     B, H, W = 1, 1, 1
 
     # Identity intrinsics/extrinsics: camera space == world space.
-    k_inv = torch.eye(3, dtype=torch.float32).unsqueeze(0)  # (1, 3, 3)
-    rt_inv = torch.eye(4, dtype=torch.float32).unsqueeze(0)  # (1, 4, 4)
-    sdd = torch.tensor([1.0], dtype=torch.float32)  # Unused when src/tgt are provided
+    k_inv = torch.eye(3, dtype=torch.float32, device=device).unsqueeze(0)  # (1, 3, 3)
+    rt_inv = torch.eye(4, dtype=torch.float32, device=device).unsqueeze(0)  # (1, 4, 4)
+    sdd = torch.tensor([1.0], dtype=torch.float32, device=device)  # Unused when src/tgt are provided
 
     # Cast a single ray along the x-axis from x = -1.5 mm to x = +1.5 mm,
     # passing through the central voxel at the origin.
-    src = torch.tensor([[[-1.5, 0.0, 0.0]]], dtype=torch.float32)  # (1, 1, 3)
-    tgt = torch.tensor([[[1.5, 0.0, 0.0]]], dtype=torch.float32)  # (1, 1, 3)
+    src = torch.tensor([[[-1.5, 0.0, 0.0]]], dtype=torch.float32, device=device)  # (1, 1, 3)
+    tgt = torch.tensor([[[1.5, 0.0, 0.0]]], dtype=torch.float32, device=device)  # (1, 1, 3)
 
     # Use many samples so that the Riemann sum closely approximates the
     # continuous line integral through the central voxel.
