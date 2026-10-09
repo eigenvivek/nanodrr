@@ -77,8 +77,15 @@ def get_values(df, method, pt_versions, col, err_col=None):
     return vals, errs
 
 
-def select_device(df: pd.DataFrame, device: str | None) -> pd.DataFrame:
-    """Keep the rows of one device. CSVs written before the `device` column existed are CUDA-only."""
+def select_rows(df: pd.DataFrame, device: str | None, task: str = "forward", n_classes: int = 1) -> pd.DataFrame:
+    """Keep the rows of one device, task and class count, so each (version, method) is unique.
+
+    CSVs written before these columns existed are single-class, forward-only and CUDA-only.
+    """
+    if "task" in df:
+        df = df[df["task"] == task]
+    if "n_classes" in df:
+        df = df[df["n_classes"] == n_classes]
     if "device" not in df:
         return df
     devices = list(df["device"].dropna().unique())
@@ -179,9 +186,11 @@ def main():
     parser.add_argument(
         "--output", "-o", default=str(Path(__file__).parent.parent.parent / "docs/assets/images/benchmark.png")
     )
+    parser.add_argument("--task", default="forward", choices=["forward", "forward+backward"], help="Task to plot")
+    parser.add_argument("--classes", type=int, default=1, help="Number of classes to plot")
     parser.add_argument("--device", default=None, help="Device rows to plot (default: cuda if present, else the first)")
     args = parser.parse_args()
-    plot(select_device(pd.read_csv(args.input), args.device), args.output)
+    plot(select_rows(pd.read_csv(args.input), args.device, args.task, args.classes), args.output)
 
 
 if __name__ == "__main__":

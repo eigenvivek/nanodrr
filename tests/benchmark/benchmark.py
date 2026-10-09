@@ -23,6 +23,18 @@ def render_triton(*args):
     return render(*args, backend="triton")
 
 
+def with_pose_grad(func):
+    """Wrap a render function so one call is a forward pass plus a backward pass w.r.t. the pose."""
+
+    def step(subject, k_inv, rt_inv, sdd, height, width):
+        rt_inv = rt_inv.detach().clone().requires_grad_(True)
+        out = func(subject, k_inv, rt_inv, sdd, height, width)
+        out.sum().backward()
+        return out
+
+    return step
+
+
 def available_devices() -> list[str]:
     devices = ["cpu"]
     if torch.backends.mps.is_available():
@@ -57,13 +69,16 @@ def synchronize(device: str) -> None:
         torch.mps.synchronize()
 
 
-def setup_data(image_path: str | None, device: str) -> tuple:
-    """Load and prepare render inputs on `device`."""
+def setup_data(image_path: str | None, label_path: str | None, device: str) -> tuple:
+    """Load and prepare render inputs on `device`. `label_path` enables multi-class rendering."""
     if image_path is None:
         from nanodrr.data.demo import download_deepfluoro
 
-        image_path, _ = download_deepfluoro()
-    subject = Subject.from_filepath(image_path, None)
+        image_path, demo_label_path = download_deepfluoro()
+        label_path = demo_label_path if label_path == "demo" else label_path
+    elif label_path == "demo":
+        raise SystemExit("--labels needs --label PATH when --image is given")
+    subject = Subject.from_filepath(image_path, label_path)
 
     sdd = 1020.0
     delx = dely = 2.0
@@ -230,9 +245,13 @@ def run_device(device: str, args) -> list[dict]:
     }
     results = []
 
+    task = "forward+backward" if args.grad else "forward"
+
     def attempt(name, func, *inputs):
         try:
-            results.append(benchmark(func, *inputs, name=name, **bench_kw))
+            if args.grad:
+                func = with_pose_grad(func)
+            results.append({**benchmark(func, *inputs, name=name, **bench_kw), "n_classes": n_classes, "task": task})
         except Exception as e:  # noqa: BLE001  # unsupported dtype/op on this device, compile failure, ...
             print(f"\n{name} [{device}]: skipped ({type(e).__name__}: {str(e).splitlines()[0][:120]})")
 
@@ -242,7 +261,10 @@ def run_device(device: str, args) -> list[dict]:
         mode = "reduce-overhead" if device == "cuda" else None
         return torch.compile(func, mode=mode, fullgraph=True)
 
-    inputs = setup_data(args.image, device)
+    label_path = args.label or ("demo" if args.labels else None)
+    inputs = setup_data(args.image, label_path, device)
+    n_classes = inputs[0].n_classes
+    print(f"Task: {task}, {n_classes} class{'es' if n_classes != 1 else ''}")
     use_triton = triton_available(device) and not args.no_triton
 
     # Compile configuration
@@ -271,7 +293,9 @@ def run_device(device: str, args) -> list[dict]:
             attempt("nanodrr triton + compile (bfloat16)", compiled(render_triton), *inputs_bf16)
 
     # DiffDRR baseline (float32), optional: it is not a nanodrr dependency and may not support every device
-    if not args.no_diffdrr:
+    if (label_path is not None or args.grad) and not args.no_diffdrr:
+        print("\nDiffDRR: skipped (the baseline is single-class and forward-only here)")
+    elif not args.no_diffdrr:
         try:
             from diffdrr.data import read
             from diffdrr.drr import DRR
@@ -288,6 +312,7 @@ def run_device(device: str, args) -> list[dict]:
                     parameterization="euler_angles",
                     convention="ZXY",
                 ).to(device)
+
                 attempt("DiffDRR (float32)", drr, pose)
             except Exception as e:  # noqa: BLE001
                 print(f"\nDiffDRR [{device}]: skipped ({type(e).__name__}: {str(e).splitlines()[0][:120]})")
@@ -318,6 +343,9 @@ def main():
         help="Device(s) to benchmark (default: the best available; 'all' = every available device)",
     )
     parser.add_argument("--image", default=None, help="CT volume (default: the DeepFluoro demo subject)")
+    parser.add_argument("--label", default=None, help="Labelmap for multi-class rendering")
+    parser.add_argument("--labels", action="store_true", help="Multi-class rendering with the demo subject's labelmap")
+    parser.add_argument("--grad", action="store_true", help="Time forward + backward w.r.t. the pose, not forward only")
     parser.add_argument("--runs", type=int, default=None, help="Timed runs per configuration")
     parser.add_argument("--iterations", type=int, default=None, help="Renders per timed run")
     parser.add_argument("--no-compile", action="store_true", help="Skip the torch.compile configurations")
@@ -367,6 +395,8 @@ def main():
         "triton_version",
         "device",
         "device_name",
+        "task",
+        "n_classes",
         "name",
         "wall_us",
         "wall_std_us",
@@ -397,6 +427,8 @@ def main():
                     **meta,
                     "device": r["device"],
                     "device_name": r["device_name"],
+                    "task": r["task"],
+                    "n_classes": r["n_classes"],
                     "name": r["name"],
                     **{
                         k: fmt(r[k])

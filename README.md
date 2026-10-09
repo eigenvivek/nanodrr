@@ -49,6 +49,8 @@ To benchmark on your own machine (the DiffDRR baseline is optional, add it with 
 uv run python tests/benchmark/benchmark.py --device all --output results.csv
 ```
 
+Add `--labels` to render the demo labelmap (multi-class) and `--grad` to time a forward plus backward pass with respect to the pose.
+
 ## Benchmarks
 
 > [!IMPORTANT]
