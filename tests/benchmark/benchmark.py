@@ -3,8 +3,11 @@ import platform
 import statistics
 import time
 import warnings
+import weakref
 
 import torch
+from torch.utils._python_dispatch import TorchDispatchMode
+from torch.utils._pytree import tree_leaves
 
 from nanodrr.camera import make_k_inv, make_rt_inv
 from nanodrr.data import Subject
@@ -69,6 +72,41 @@ def synchronize(device: str) -> None:
         torch.mps.synchronize()
 
 
+class PeakMemory(TorchDispatchMode):
+    """Peak bytes of `device` storage allocated by the ops run inside this mode.
+
+    MPS has no peak-memory counter, so count the storages each op returns and
+    release them as they are freed. This measures tensor memory only (no
+    allocator rounding or kernel scratch), and it does not see inside compiled
+    graphs.
+    """
+
+    def __init__(self, device: str):
+        super().__init__()
+        self.device = device
+        self.live = self.peak = 0
+        self.storages = set()
+
+    def _free(self, ptr: int, nbytes: int) -> None:
+        self.live -= nbytes
+        self.storages.discard(ptr)
+
+    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        out = func(*args, **(kwargs or {}))
+        for t in tree_leaves(out):
+            if not isinstance(t, torch.Tensor) or t.device.type != self.device:
+                continue
+            storage = t.untyped_storage()
+            ptr, nbytes = storage.data_ptr(), storage.nbytes()
+            if ptr in self.storages:  # a view or in-place result of a tracked storage
+                continue
+            self.storages.add(ptr)
+            weakref.finalize(storage, self._free, ptr, nbytes)
+            self.live += nbytes
+            self.peak = max(self.peak, self.live)
+        return out
+
+
 def setup_data(image_path: str | None, label_path: str | None, device: str) -> tuple:
     """Load and prepare render inputs on `device`. `label_path` enables multi-class rendering."""
     if image_path is None:
@@ -106,6 +144,7 @@ def benchmark(
     func,
     *args,
     name: str = "Benchmark",
+    compiled: bool = False,
     device: str = "cuda",
     num_runs: int = 10,
     num_iterations: int = 100,
@@ -118,12 +157,15 @@ def benchmark(
     CUDA uses CUDA events for GPU timing, a profiler pass for pure GPU time and the
     caching-allocator memory stats. CPU and MPS use `time.perf_counter` with a
     synchronize around each run; `gpu_us` is NaN (no profiler pass) and memory is
-    NaN on CPU. MPS reports the current (not peak) allocation.
+    NaN on CPU. MPS has no peak counters, so its peak allocation is measured with
+    `PeakMemory` in an extra untimed call (NaN for compiled functions, whose graphs
+    it cannot see) and its peak reservation is NaN.
 
     Args:
         func: Callable to benchmark
         *args: Arguments to pass to func
         name: Name of the benchmark (for printing)
+        compiled: Whether `func` calls a `torch.compile`'d function
         device: One of "cpu", "mps", "cuda"
         num_runs: Number of runs to average (default: 10)
         num_iterations: Number of iterations per run (default: 100)
@@ -176,9 +218,15 @@ def benchmark(
         peak_reserved = torch.cuda.max_memory_reserved()
         delta_allocated = torch.cuda.memory_allocated() - mem_before
     elif device == "mps":
-        peak_allocated = torch.mps.current_allocated_memory()
-        peak_reserved = torch.mps.driver_allocated_memory()
-        delta_allocated = peak_allocated - mem_before
+        delta_allocated = torch.mps.current_allocated_memory() - mem_before
+        peak_reserved = peak_allocated = nan
+        if not compiled:
+            synchronize(device)
+            baseline = torch.mps.current_allocated_memory()
+            with PeakMemory(device) as tracker:
+                func(*args)
+            synchronize(device)
+            peak_allocated = baseline + tracker.peak
     else:
         peak_allocated = peak_reserved = delta_allocated = nan
 
@@ -248,10 +296,12 @@ def run_device(device: str, args) -> list[dict]:
     task = "forward+backward" if args.grad else "forward"
 
     def attempt(name, func, *inputs):
+        is_compiled = hasattr(func, "_torchdynamo_orig_callable")  # check before with_pose_grad wraps it
         try:
             if args.grad:
                 func = with_pose_grad(func)
-            results.append({**benchmark(func, *inputs, name=name, **bench_kw), "n_classes": n_classes, "task": task})
+            result = benchmark(func, *inputs, name=name, compiled=is_compiled, **bench_kw)
+            results.append({**result, "n_classes": n_classes, "task": task})
         except Exception as e:  # noqa: BLE001  # unsupported dtype/op on this device, compile failure, ...
             print(f"\n{name} [{device}]: skipped ({type(e).__name__}: {str(e).splitlines()[0][:120]})")
 
