@@ -77,8 +77,8 @@ def get_values(df, method, pt_versions, col, err_col=None):
     return vals, errs
 
 
-def select_rows(df: pd.DataFrame, device: str | None, task: str = "forward", n_classes: int = 1) -> pd.DataFrame:
-    """Keep the rows of one device, task and class count, so each (version, method) is unique.
+def select_rows(df: pd.DataFrame, task: str = "forward", n_classes: int = 1) -> pd.DataFrame:
+    """Keep the CUDA rows of one task and class count, so each (version, method) is unique.
 
     CSVs written before these columns existed are single-class, forward-only and CUDA-only.
     """
@@ -86,14 +86,11 @@ def select_rows(df: pd.DataFrame, device: str | None, task: str = "forward", n_c
         df = df[df["task"] == task]
     if "n_classes" in df:
         df = df[df["n_classes"] == n_classes]
-    if "device" not in df:
-        return df
-    devices = list(df["device"].dropna().unique())
-    if device is None:
-        device = "cuda" if "cuda" in devices else devices[0]
-    if device not in devices:
-        raise SystemExit(f"No rows for device {device!r} (have: {', '.join(map(str, devices))})")
-    return df[df["device"] == device]
+    if "device" in df:
+        df = df[df["device"] == "cuda"]
+    if df.empty:
+        raise SystemExit(f"No CUDA rows for task {task!r} with {n_classes} class(es)")
+    return df
 
 
 def plot(df: pd.DataFrame, output: str) -> None:
@@ -101,11 +98,6 @@ def plot(df: pd.DataFrame, output: str) -> None:
     pt_versions = sorted(df["pytorch_version"].unique(), key=lambda v: list(map(int, v.split("+")[0].split(".")[:2])))
     pt_labels = [v.split("+")[0].rsplit(".", 1)[0] for v in pt_versions]
     x = np.arange(len(pt_versions))
-
-    # CPU/MPS have no profiler pass (empty `gpu_us`), so fall back to wall-clock FPS
-    has_gpu_time = df["fps_gpu"].notna().any()
-    fps_col = "fps_gpu" if has_gpu_time else "fps"
-    has_memory = df["peak_reserved_mb"].notna().any()
 
     for theme in ("light", "dark"):
         is_dark = theme == "dark"
@@ -115,31 +107,27 @@ def plot(df: pd.DataFrame, output: str) -> None:
 
         handles = {}
         for method in methods:
-            kw = {"color": colors[method], "marker": MARKERS[method], "linestyle": LINESTYLES[method], "markersize": 5}
+            kw = dict(color=colors[method], marker=MARKERS[method], linestyle=LINESTYLES[method], markersize=5)
             # GPU-time FPS is stable across runs; wall time is launch-bound
-            vals, _ = get_values(df, method, pt_versions, fps_col)
+            vals, _ = get_values(df, method, pt_versions, "fps_gpu")
             handles[method] = axs[0].errorbar(x, vals, label=format_label(method), **kw)
             vals, _ = get_values(df, method, pt_versions, "peak_reserved_mb")
             axs[1].errorbar(x, vals, **kw)
 
-        speed_fmt = {"yscale": "log"}
-        if has_gpu_time:  # fixed axis tuned for CUDA GPU-time FPS
-            speed_fmt |= {
-                "ylim": (100, 20000),
-                "yticks": [100, 200, 500, 1000, 2000, 5000, 10000, 20000],
-                "yticklabels": ["100", "200", "500", "1,000", "2,000", "5,000", "10,000", "20,000"],
-                "ytickminor": False,
-            }
         axs[0].format(
             title="Rendering Speed (↑)",
-            ylabel=f"Frames per Second [FPS, {'GPU' if has_gpu_time else 'wall'} time]",
+            ylabel="Frames per Second [FPS, GPU time]",
+            yscale="log",
+            ylim=(100, 20000),
+            yticks=[100, 200, 500, 1000, 2000, 5000, 10000, 20000],
+            yticklabels=["100", "200", "500", "1,000", "2,000", "5,000", "10,000", "20,000"],
+            ytickminor=False,
             xlabel="PyTorch Version",
             xticks=x,
             xticklabels=pt_labels,
-            **speed_fmt,
         )
         axs[1].format(
-            title="GPU Memory Usage (↓)" if has_memory else "GPU Memory Usage (not recorded)",
+            title="GPU Memory Usage (↓)",
             ylabel="Peak Memory Reserved [MB]",
             xlabel="PyTorch Version",
             xticks=x,
@@ -188,9 +176,8 @@ def main():
     )
     parser.add_argument("--task", default="forward", choices=["forward", "forward+backward"], help="Task to plot")
     parser.add_argument("--classes", type=int, default=1, help="Number of classes to plot")
-    parser.add_argument("--device", default=None, help="Device rows to plot (default: cuda if present, else the first)")
     args = parser.parse_args()
-    plot(select_rows(pd.read_csv(args.input), args.device, args.task, args.classes), args.output)
+    plot(select_rows(pd.read_csv(args.input), args.task, args.classes), args.output)
 
 
 if __name__ == "__main__":
