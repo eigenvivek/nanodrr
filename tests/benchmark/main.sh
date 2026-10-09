@@ -22,6 +22,7 @@ PYTORCH_VERSIONS=(
     "2.11"
     "2.12"
     "2.13"
+    "2.14"
 )
 
 # Map PyTorch version -> CUDA wheel index
@@ -35,6 +36,7 @@ CUDA_INDEX["2.10"]="https://download.pytorch.org/whl/cu128"
 CUDA_INDEX["2.11"]="https://download.pytorch.org/whl/cu129"
 CUDA_INDEX["2.12"]="https://download.pytorch.org/whl/cu130"
 CUDA_INDEX["2.13"]="https://download.pytorch.org/whl/cu130"
+CUDA_INDEX["2.14"]="https://download.pytorch.org/whl/cu130"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NANODRR_ROOT="${NANODRR_ROOT:-$(dirname "$(dirname "$SCRIPT_DIR")")}"
