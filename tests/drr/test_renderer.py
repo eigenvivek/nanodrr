@@ -1,7 +1,5 @@
-import pytest
 import torch
 from pytest import approx
-from test_fused import make_camera, make_random_subject
 
 from nanodrr.data.subject import Subject
 from nanodrr.drr.renderer import render
@@ -91,49 +89,3 @@ def test_single_ray_integral_equals_one(device):
     # The integral of the unit impulse along this ray should be 1 (within a
     # small numerical tolerance due to discretisation).
     assert value == approx(1.0, rel=1e-3, abs=1e-3)
-
-
-@pytest.mark.parametrize("orthographic", [False, True])
-@pytest.mark.parametrize("n_classes", [1, 3])
-def test_forward_render_matches_cpu(device, n_classes, orthographic):
-    """The torch backend gives the same radiograph on every device as on the CPU."""
-    outs = []
-    for dev in (torch.device("cpu"), device):
-        subject = make_random_subject(n_classes=n_classes).to(dev)
-        k_inv, rt_inv, sdd, height, width = make_camera(dev)
-        outs.append(
-            render(
-                subject, k_inv, rt_inv, sdd, height, width, n_samples=64, orthographic=orthographic, backend="torch"
-            ).cpu()
-        )
-    ref, out = outs
-    assert out.shape == (1, n_classes, 16, 16)
-    # Class routing flips at label boundaries under ~1e-6 coordinate differences
-    scale = ref.abs().max()
-    assert ((ref.sum(dim=1) - out.sum(dim=1)).abs().max() / scale).item() < 1e-4
-    bad = ((ref - out).abs().amax(dim=1) / scale) > 1e-4
-    assert bad.float().mean().item() < 1e-3
-
-
-def _grads(device, kind, n_classes):
-    """Gradients of a weighted render w.r.t. the pose (`pose`) or the volume (`volume`)."""
-    subject = make_random_subject(n_classes=n_classes).to(device)
-    k_inv, rt_inv, sdd, height, width = make_camera(device)
-    w = torch.randn(1, n_classes, height, width, generator=torch.Generator().manual_seed(3)).to(device)
-    rt = rt_inv.clone().requires_grad_(kind == "pose")
-    if kind == "volume":
-        subject.convert_to_mu = False
-        subject._image_hu = subject._image_hu.detach().requires_grad_(True)
-    out = render(subject, k_inv, rt, sdd, height, width, n_samples=64, backend="torch")
-    (out * w).sum().backward()
-    # SE(3) rows only; the homogeneous row's phantom gradient is not meaningful
-    return (rt.grad[0, :3] if kind == "pose" else subject._image_hu.grad).cpu()
-
-
-@pytest.mark.parametrize("kind,n_classes", [("pose", 1), ("pose", 3), ("volume", 1), ("volume", 3)])
-def test_torch_backend_gradients_match_cpu(device, kind, n_classes):
-    """The torch backend is differentiable w.r.t. pose and volume, with the same gradients on every device."""
-    ref = _grads(torch.device("cpu"), kind, n_classes)
-    out = _grads(device, kind, n_classes)
-    assert torch.isfinite(out).all() and out.abs().max() > 0
-    assert ((ref - out).abs().max() / ref.abs().max()).item() < 1e-3

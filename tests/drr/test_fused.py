@@ -24,9 +24,10 @@ class Parity:
         return [(self.ref_backend, self.ref_device), (self.backend, self.device)]
 
 
-# Triton is compared with the torch backend on the same GPU; MPS with the torch backend on the CPU
+# Triton is compared with the torch backend on the same GPU; torch on a GPU with torch on the CPU
 PARITY = {
     "triton-cuda": ("triton", "cuda", "torch", "cuda"),
+    "torch-cuda": ("torch", "cuda", "torch", "cpu"),
     "torch-mps": ("torch", "mps", "torch", "cpu"),
 }
 
