@@ -9,6 +9,7 @@ dependencies = [
     "platformdirs>=4.0.0",
     "roma>=1.5.6",
     "torch>=2.5.0",
+    "torch>=2.13.0; sys_platform == 'darwin'",  # native MPS grid_sample backward and 3D nearest
     "torchio>=0.21.0",
 ]
 

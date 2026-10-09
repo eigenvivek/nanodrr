@@ -40,9 +40,9 @@ pip install "nanodrr[all]"    # All extras
 | --- | --- | --- | --- |
 | CUDA | fused Triton kernel (default) or pure PyTorch | ✅ | ✅ |
 | CPU | pure PyTorch | ✅ | ✅ |
-| Apple silicon (MPS) | pure PyTorch | ✅ (`pytorch>=2.10`) | ❌ |
+| Apple silicon (MPS) | pure PyTorch | ✅ | ✅ |
 
-On MPS, rendering works with or without a labelmap, but differentiable rendering (e.g., registration, as in the `optim` tutorial) is not yet supported because PyTorch has no `grid_sampler_3d_backward` for MPS. Nearest-neighbor labelmap sampling, which MPS also lacks, is handled by a small built-in workaround. The Triton kernel and `torch.compile(mode="reduce-overhead")` are CUDA-only.
+MPS needs `pytorch>=2.13`, which is the first release with native MPS kernels for `grid_sample` backward and 3D nearest-neighbor sampling; the requirement is enforced automatically on macOS. The Triton kernel and `torch.compile(mode="reduce-overhead")` are CUDA-only.
 
 To benchmark on your own machine (the DiffDRR baseline is optional, add it with `--with diffdrr`):
 ```

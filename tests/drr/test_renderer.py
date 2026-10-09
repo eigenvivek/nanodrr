@@ -1,12 +1,9 @@
 import pytest
 import torch
-import torch.nn.functional as F
 from pytest import approx
 from test_fused import make_camera, make_random_subject
 
 from nanodrr.data.subject import Subject
-from nanodrr.drr import backends
-from nanodrr.drr.backends import _grid_sample_nearest
 from nanodrr.drr.renderer import render
 
 
@@ -118,48 +115,6 @@ def test_forward_render_matches_cpu(device, n_classes, orthographic):
     assert bad.float().mean().item() < 1e-3
 
 
-@pytest.mark.parametrize("align_corners", [False, True])
-@pytest.mark.parametrize("padding_mode", ["zeros", "border", "reflection"])
-@pytest.mark.parametrize("shape", [(5, 6, 7), (6, 7)])
-def test_grid_sample_nearest_matches_torch(device, shape, padding_mode, align_corners):
-    """The manual nearest sampler reproduces `F.grid_sample(mode="nearest")` in 2D and 3D."""
-    torch.manual_seed(0)
-    vol = torch.randint(1, 6, (2, 3, *shape)).float()
-    grid = torch.rand(2, 4, 9, len(shape)) * 3.2 - 1.6  # extends past [-1, 1]
-    if len(shape) == 3:
-        grid = grid[:, :, :, None]
-    kw = {"padding_mode": padding_mode, "align_corners": align_corners}
-
-    # A batch-expanded volume must give the same result without B copies
-    for v in (vol, vol[:1].expand(2, -1, *[-1] * len(shape))):
-        ref = F.grid_sample(v, grid, mode="nearest", **kw)  # CPU reference
-        out = _grid_sample_nearest(v.to(device), grid.to(device), **kw)
-        torch.testing.assert_close(out.cpu(), ref, rtol=0, atol=0)
-
-
-def test_grid_sample_nearest_invalid_args():
-    vol = torch.zeros(1, 1, 3, 3, 3)
-    with pytest.raises(ValueError, match="padding_mode"):
-        _grid_sample_nearest(vol, torch.zeros(1, 2, 2, 2, 3), padding_mode="wrap")
-    with pytest.raises(ValueError, match="grid"):
-        _grid_sample_nearest(vol, torch.zeros(1, 2, 2, 2, 2))
-
-
-def test_grid_sample_dispatch(device, monkeypatch):
-    """Nearest-mode sampling is routed to the manual sampler on MPS only; bilinear never is."""
-    calls = []
-    real = backends._grid_sample_nearest
-    monkeypatch.setattr(backends, "_grid_sample_nearest", lambda *a, **k: calls.append(1) or real(*a, **k))
-
-    vol = torch.rand(1, 1, 4, 5, 6, device=device)
-    grid = torch.rand(1, 3, 3, 3, 3, device=device) * 2 - 1
-    backends._grid_sample(vol, grid, mode="bilinear")
-    assert not calls
-    out = backends._grid_sample(vol, grid, mode="nearest")
-    assert len(calls) == (device.type == "mps")
-    torch.testing.assert_close(out.cpu(), F.grid_sample(vol.cpu(), grid.cpu(), mode="nearest", align_corners=False))
-
-
 def _grads(device, kind, n_classes):
     """Gradients of a weighted render w.r.t. the pose (`pose`) or the volume (`volume`)."""
     subject = make_random_subject(n_classes=n_classes).to(device)
@@ -176,16 +131,8 @@ def _grads(device, kind, n_classes):
 
 
 @pytest.mark.parametrize("kind,n_classes", [("pose", 1), ("pose", 3), ("volume", 1), ("volume", 3)])
-def test_torch_backend_gradients_match_cpu(request, device, kind, n_classes):
+def test_torch_backend_gradients_match_cpu(device, kind, n_classes):
     """The torch backend is differentiable w.r.t. pose and volume, with the same gradients on every device."""
-    if device.type == "mps":
-        request.applymarker(
-            pytest.mark.xfail(
-                raises=NotImplementedError,
-                strict=True,
-                reason="aten::grid_sampler_3d_backward is not implemented on MPS",
-            )
-        )
     ref = _grads(torch.device("cpu"), kind, n_classes)
     out = _grads(device, kind, n_classes)
     assert torch.isfinite(out).all() and out.abs().max() > 0
