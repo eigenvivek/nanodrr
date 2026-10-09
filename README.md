@@ -8,10 +8,10 @@ A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenv
 
 - Optimized, pure PyTorch implementation (**~5× faster than `DiffDRR` at baseline**)
 - Fused Triton rendering kernel, used by default on CUDA (**up to ~80× faster than `DiffDRR`**)
-- Runs on CUDA, Apple silicon (MPS), and CPU
 - Modular design (freely swap subjects, extrinsics, and intrinsics during rendering)
 - Compatibility with `torch.compile` and mixed precision
 - Extensive type hints with `jaxtyping`
+- Runs on CUDA, Apple silicon (MPS), and CPU
 - Standard Python package structure managed with `uv`
 
 All projective geometry is implemented internally using the standard [Hartley and Zisserman](https://www.cambridge.org/core/books/multiple-view-geometry-in-computer-vision/0B6F289C78B2B23F596CAA76D3D43F7A) pinhole camera formulation.
@@ -21,6 +21,8 @@ All projective geometry is implemented internally using the standard [Hartley an
 > [!NOTE]
 >
 > On `pytorch<2.9`, `torch.compile` with `bfloat16` is slower than eager for the pure PyTorch backend due to a CUDA graph capture issue (see [Benchmarks](#benchmarks)). The fused Triton backend is unaffected.
+> 
+> MPS-accelerated differentiable rendering requires `pytorch>=2.13`, which is the first release with native MPS kernels for `grid_sample` backwards and 3D nearest-neighbor sampling.
 
 To strictly install the renderer:
 ```
@@ -33,23 +35,6 @@ pip install "nanodrr[plot]"   # 2D visualization (matplotlib, opencv)
 pip install "nanodrr[scene]"  # 3D visualization (VTK, PyVista)
 pip install "nanodrr[all]"    # All extras
 ```
-
-## Devices
-
-| Device | Backend | Forward rendering | Gradients |
-| --- | --- | --- | --- |
-| CUDA | fused Triton kernel (default) or pure PyTorch | ✅ | ✅ |
-| CPU | pure PyTorch | ✅ | ✅ |
-| Apple silicon (MPS) | pure PyTorch | ✅ | ✅ |
-
-MPS needs `pytorch>=2.13`, which is the first release with native MPS kernels for `grid_sample` backward and 3D nearest-neighbor sampling; the requirement is enforced automatically on macOS. The Triton kernel and `torch.compile(mode="reduce-overhead")` are CUDA-only.
-
-To benchmark on your own machine (the DiffDRR baseline is optional, add it with `--with diffdrr`):
-```
-uv run python tests/benchmark/benchmark.py --device all --output results.csv
-```
-
-Add `--labels` to render the demo labelmap (multi-class) and `--grad` to time a forward plus backward pass with respect to the pose.
 
 ## Benchmarks
 
