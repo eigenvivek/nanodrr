@@ -17,6 +17,38 @@ def _sample(vol_ptr, ix, iy, iz, D, H, W, m):
 
 
 @triton.jit
+def _label(lab_ptr, ix, iy, iz, D, H, W, m):
+    """Load the integer label at voxel [iz, iy, ix] (0 outside bounds)."""
+    return _sample(lab_ptr, ix, iy, iz, D, H, W, m).to(tl.int32)
+
+
+@triton.jit
+def _label_go(go_ptr, lab_ptr, ix, iy, iz, D, H, W, m, bCN, N, offs, C):
+    """Upstream gradient go[b, label[iz, iy, ix], n] of the channel that a voxel is routed to."""
+    cls = _label(lab_ptr, ix, iy, iz, D, H, W, m)
+    return tl.load(go_ptr + bCN + cls * N + offs, mask=m & (cls >= 0) & (cls < C), other=0.0).to(tl.float32)
+
+
+@triton.jit
+def _scatter(out_ptr, out_base, cls, val, N, offs, m, C):
+    """out[cls, n] += val for each lane. Lanes own distinct n, so no atomics are needed."""
+    ok = m & (cls >= 0) & (cls < C) & (val != 0.0)
+    p = out_ptr + out_base + cls * N + offs
+    tl.store(p, tl.load(p, mask=ok, other=0.0) + val, mask=ok)
+
+
+@triton.jit
+def _run_length(out_ptr, out_base, cur_cls, cur_sum, cls, val, step, N, offs, m, C):
+    """Accumulate `val` into a per-lane running sum, flushing it to `out` when the class changes."""
+    active = m & (cls >= 0) & (cls < C) & (val != 0.0)
+    change = active & (cls != cur_cls)
+    _scatter(out_ptr, out_base, cur_cls, cur_sum * step, N, offs, change, C)
+    cur_sum = tl.where(change, 0.0, cur_sum) + tl.where(active, val, 0.0)
+    cur_cls = tl.where(change, cls, cur_cls)
+    return cur_cls, cur_sum
+
+
+@triton.jit
 def _axis_range(p0, dp, lo, hi):
     """Ray-parameter interval over which `lo <= p0 + t * dp <= hi` (per lane)."""
     safe = tl.where(tl.abs(dp) < 1e-12, 1e-12, dp)
@@ -63,6 +95,7 @@ def _fused_kernel(
     BACKWARD: tl.constexpr,
     NEED_GVOL: tl.constexpr,
     NEED_GCAM: tl.constexpr,
+    SOFT: tl.constexpr,
     SPLIT: tl.constexpr,
     TW: tl.constexpr,
     MARGIN: tl.constexpr,
@@ -73,7 +106,8 @@ def _fused_kernel(
     Rays go from `src` to `tgt` (camera space); `M` maps camera space to voxel
     pixel coordinates, so sample `s` sits at `M @ [lerp(src, tgt, t_s), 1]`.
     With a labelmap (C > 1), each sample's intensity is routed to the channel
-    given by a nearest-neighbor label lookup at the same position.
+    given by a nearest-neighbor label lookup at the same position. With SOFT,
+    each of the 8 trilinear neighbors is instead routed to its own label.
 
     Each program marches BLOCK rays — a (BLOCK // TW) x TW pixel tile of an
     IW-wide image when TW > 0, else BLOCK consecutive rays — over the k-th of
@@ -185,7 +219,13 @@ def _fused_kernel(
         gtz = tl.zeros([BLOCK], dtype=tl.float32)
         astep = tl.zeros([BLOCK], dtype=tl.float32)
     else:
-        acc = tl.zeros([BLOCK, CP2], dtype=tl.float32)
+        # With a labelmap, each lane keeps the running sum of one class in
+        # registers and adds it to `out` when the class changes. A dense
+        # [BLOCK, C] tile would cost O(C) per sample, but rays cross few class
+        # boundaries
+        out_base = k * BCN + b * C * N
+        cur_cls = tl.zeros([BLOCK], dtype=tl.int32)
+        cur_sum = tl.zeros([BLOCK], dtype=tl.float32)
 
     for s in range(s_lo, s_hi):
         t = s * inv_s
@@ -211,6 +251,20 @@ def _fused_kernel(
         v110 = _sample(vol_ptr, ix, iy + 1, iz + 1, D, H, W, m)
         v111 = _sample(vol_ptr, ix + 1, iy + 1, iz + 1, D, H, W, m)
 
+        if SOFT:
+            if BACKWARD:
+                # Weight each neighbor by the upstream gradient of its own channel,
+                # so the single-channel derivatives below apply to the products
+                bCN = b * C * N
+                v000 = v000 * _label_go(go_ptr, lab_ptr, ix, iy, iz, D, H, W, m, bCN, N, offs, C)
+                v001 = v001 * _label_go(go_ptr, lab_ptr, ix + 1, iy, iz, D, H, W, m, bCN, N, offs, C)
+                v010 = v010 * _label_go(go_ptr, lab_ptr, ix, iy + 1, iz, D, H, W, m, bCN, N, offs, C)
+                v011 = v011 * _label_go(go_ptr, lab_ptr, ix + 1, iy + 1, iz, D, H, W, m, bCN, N, offs, C)
+                v100 = v100 * _label_go(go_ptr, lab_ptr, ix, iy, iz + 1, D, H, W, m, bCN, N, offs, C)
+                v101 = v101 * _label_go(go_ptr, lab_ptr, ix + 1, iy, iz + 1, D, H, W, m, bCN, N, offs, C)
+                v110 = v110 * _label_go(go_ptr, lab_ptr, ix, iy + 1, iz + 1, D, H, W, m, bCN, N, offs, C)
+                v111 = v111 * _label_go(go_ptr, lab_ptr, ix + 1, iy + 1, iz + 1, D, H, W, m, bCN, N, offs, C)
+
         c00 = v000 * (1 - fx) + v001 * fx
         c01 = v010 * (1 - fx) + v011 * fx
         c10 = v100 * (1 - fx) + v101 * fx
@@ -222,13 +276,16 @@ def _fused_kernel(
         if C == 1:
             cls = tl.zeros([BLOCK], dtype=tl.int32)
         else:
-            rx = _round_half_even(x).to(tl.int32)
-            ry = _round_half_even(y).to(tl.int32)
-            rz = _round_half_even(z).to(tl.int32)
-            cls = _sample(lab_ptr, rx, ry, rz, D, H, W, m).to(tl.int32)
+            if not SOFT:
+                rx = _round_half_even(x).to(tl.int32)
+                ry = _round_half_even(y).to(tl.int32)
+                rz = _round_half_even(z).to(tl.int32)
+                cls = _sample(lab_ptr, rx, ry, rz, D, H, W, m).to(tl.int32)
 
         if BACKWARD:
-            if C == 1:
+            if SOFT:
+                gg = tl.full([BLOCK], 1.0, dtype=tl.float32)  # already folded into the neighbors
+            elif C == 1:
                 gg = tl.sum(go_tile, axis=1)
             else:
                 # Gather go[b, cls, n] per sample: flat in C, unlike a per-lane
@@ -295,9 +352,23 @@ def _fused_kernel(
                     inb = m & (jx >= 0) & (jx < W) & (jy >= 0) & (jy < H) & (jz >= 0) & (jz < D)
                     w = tl.where(cx == 1, fx, wx0) * tl.where(cy == 1, fy, wy0) * tl.where(cz == 1, fz, wz0)
                     idx = (jz * H + jy) * W + jx
+                    if SOFT:
+                        w = w * _label_go(go_ptr, lab_ptr, jx, jy, jz, D, H, W, m, b * C * N, N, offs, C)
                     tl.atomic_add(gvol_ptr + idx, g * w, mask=inb)
         else:
-            acc += val[:, None] * (cls[:, None] == classes[None, :])
+            if SOFT:
+                for corner in tl.static_range(8):
+                    cz = corner // 4
+                    cy = (corner // 2) % 2
+                    cx = corner % 2
+                    w = tl.where(cx == 1, fx, 1 - fx) * tl.where(cy == 1, fy, 1 - fy) * tl.where(cz == 1, fz, 1 - fz)
+                    vj = _sample(vol_ptr, ix + cx, iy + cy, iz + cz, D, H, W, m)
+                    lj = _label(lab_ptr, ix + cx, iy + cy, iz + cz, D, H, W, m)
+                    cur_cls, cur_sum = _run_length(out_ptr, out_base, cur_cls, cur_sum, lj, vj * w, step, N, offs, m, C)
+            elif C == 1:
+                cur_sum += val
+            else:
+                cur_cls, cur_sum = _run_length(out_ptr, out_base, cur_cls, cur_sum, cls, val, step, N, offs, m, C)
 
     if BACKWARD:
         # Per-program partials, reduced in torch, so the pose gradient is deterministic
@@ -324,11 +395,10 @@ def _fused_kernel(
             tl.store(gtgt_ptr + gc + 2, gtz, mask=m)
             tl.store(gstep_ptr + k * BN + base, astep, mask=m)
     else:
-        tl.store(
-            out_ptr + k * BCN + b * C * N + classes[None, :] * N + offs[:, None],
-            acc * step[:, None],
-            mask=m[:, None] & cmask[None, :],
-        )
+        if C == 1:
+            tl.store(out_ptr + out_base + offs, cur_sum * step, mask=m)
+        else:
+            _scatter(out_ptr, out_base, cur_cls, cur_sum * step, N, offs, m, C)
 
 
 def _config(N, width):
@@ -367,6 +437,7 @@ def _launch(
     backward,
     need_gvol,
     need_gcam,
+    soft,
 ):
     """Launch the fused kernel in forward (backward=False) or backward mode."""
     B, N, _ = tgt.shape
@@ -404,6 +475,7 @@ def _launch(
         BACKWARD=backward,
         NEED_GVOL=need_gvol,
         NEED_GCAM=need_gcam,
+        SOFT=soft,
         SPLIT=split,
         TW=tw,
         MARGIN=_MARGIN,  # ty: ignore[invalid-argument-type]
@@ -423,6 +495,7 @@ def fused_raymarch(
     n_samples: int,
     n_classes: int,
     width: int,
+    soft_labels: bool = False,
 ) -> torch.Tensor:
     """Fused differentiable ray marching.
 
@@ -433,7 +506,8 @@ def fused_raymarch(
     B, N, _ = tgt.shape
     M = M.contiguous()
     split = _split(B, _config(N, width)[0], n_samples)
-    out = torch.empty(split, B, n_classes, N, device=vol.device, dtype=torch.float32)
+    alloc = torch.empty if n_classes == 1 else torch.zeros  # with a labelmap, the kernel adds into `out`
+    out = alloc(split, B, n_classes, N, device=vol.device, dtype=torch.float32)
     _launch(
         vol,
         lab,
@@ -455,23 +529,25 @@ def fused_raymarch(
         backward=False,
         need_gvol=False,
         need_gcam=False,
+        soft=soft_labels,
     )
     result = out[0] if split == 1 else out.sum(dim=0)
     return result.to(vol.dtype)
 
 
 @fused_raymarch.register_fake
-def _(vol, lab, M, src, tgt, step, n_samples, n_classes, width):
+def _(vol, lab, M, src, tgt, step, n_samples, n_classes, width, soft_labels=False):
     B, N, _ = tgt.shape
     return torch.empty(B, n_classes, N, device=vol.device, dtype=vol.dtype)
 
 
 def _setup_context(ctx, inputs, output):
-    vol, lab, M, src, tgt, step, n_samples, n_classes, width = inputs
+    vol, lab, M, src, tgt, step, n_samples, n_classes, width, soft_labels = inputs
     ctx.save_for_backward(vol, lab, M.contiguous(), src, tgt, step)
     ctx.n_samples = n_samples
     ctx.n_classes = n_classes
     ctx.width = width
+    ctx.soft_labels = soft_labels
 
 
 @torch.library.custom_op("nanodrr::fused_raymarch_bwd", mutates_args=())
@@ -488,6 +564,7 @@ def _fused_raymarch_bwd(
     width: int,
     need_gvol: bool,
     need_gcam: bool,
+    soft_labels: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Backward kernel launch, opaque to `torch.compile` like the forward."""
     if need_gvol and torch.are_deterministic_algorithms_enabled():
@@ -524,6 +601,7 @@ def _fused_raymarch_bwd(
         backward=True,
         need_gvol=need_gvol,
         need_gcam=need_gcam,
+        soft=soft_labels,
     )
     gM = gM_part.view(B, -1, 12).sum(dim=1).view(B, 3, 4)
     if need_gcam:
@@ -532,7 +610,21 @@ def _fused_raymarch_bwd(
 
 
 @_fused_raymarch_bwd.register_fake
-def _(go, vol, lab, M, src, tgt, step, n_samples, n_classes, width, need_gvol, need_gcam):
+def _(
+    go,
+    vol,
+    lab,
+    M,
+    src,
+    tgt,
+    step,
+    n_samples,
+    n_classes,
+    width,
+    need_gvol,
+    need_gcam,
+    soft_labels=False,
+):
     B, N, _ = tgt.shape
     gM = torch.empty(B, 3, 4, device=M.device, dtype=torch.float32)
     gvol = torch.empty(vol.shape, device=M.device, dtype=torch.float32) if need_gvol else gM.new_empty(0)
@@ -547,13 +639,25 @@ def _backward(ctx, go):
     need_gvol = ctx.needs_input_grad[0]
     need_gcam = any(ctx.needs_input_grad[i] for i in (3, 4, 5))
     gvol, gM, gsrc, gtgt, gstep = _fused_raymarch_bwd(
-        go, vol, lab, M, src, tgt, step, ctx.n_samples, ctx.n_classes, ctx.width, need_gvol, need_gcam
+        go,
+        vol,
+        lab,
+        M,
+        src,
+        tgt,
+        step,
+        ctx.n_samples,
+        ctx.n_classes,
+        ctx.width,
+        need_gvol,
+        need_gcam,
+        ctx.soft_labels,
     )
     if need_gcam and src.shape[1] == 1:
         gsrc = gsrc.sum(dim=1, keepdim=True)
     return (
         gvol.to(vol.dtype) if need_gvol else None,
-        None,  # lab: nearest-neighbor lookup, not differentiable
+        None,  # lab: integer routing, not differentiable
         gM.to(M.dtype),
         gsrc.to(src.dtype) if need_gcam else None,
         gtgt.to(tgt.dtype) if need_gcam else None,
@@ -561,6 +665,7 @@ def _backward(ctx, go):
         None,  # n_samples
         None,  # n_classes
         None,  # width
+        None,  # soft_labels
     )
 
 

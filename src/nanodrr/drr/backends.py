@@ -1,3 +1,5 @@
+import itertools
+
 import torch
 import torch.nn.functional as F
 from jaxtyping import Float
@@ -15,12 +17,16 @@ def render_torch(
     n_samples: int,
     height: int,
     width: int,
+    soft_labels: bool = False,
 ) -> Float[torch.Tensor, "B C H W"]:
     """Reference `grid_sample` implementation of `render`."""
     device = rt_inv.device
     B = rt_inv.shape[0]
     C = subject.n_classes
     N = height * width
+
+    if soft_labels and C > 1:
+        return _render_soft(subject, rt_inv, src, tgt, step_size, n_samples, height, width)
 
     # Change coordinates: camera → world → voxel → normalized grid
     xform = subject.world_to_grid @ rt_inv
@@ -63,6 +69,71 @@ def render_torch(
     return out.reshape(B, C, height, width)
 
 
+def _render_soft(
+    subject: Subject,
+    rt_inv: Float[torch.Tensor, "B 4 4"],
+    src: Float[torch.Tensor, "B (H W) 3"] | Float[torch.Tensor, "B 1 3"],
+    tgt: Float[torch.Tensor, "B (H W) 3"],
+    step_size: Float[torch.Tensor, "B (H W)"],
+    n_samples: int,
+    height: int,
+    width: int,
+) -> Float[torch.Tensor, "B C H W"]:
+    r"""Per-structure ray marching with trilinear (partial-volume) labels.
+
+    Trilinear interpolation is written out over the 8 voxels surrounding each
+    sample so that every voxel's contribution is routed to that voxel's own class:
+
+    $$I_c = \Delta s \sum_k \sum_{j=1}^{8} w_j(x_k) \, \mu_j \, [\ell_j = c]$$
+
+    where $w_j(x_k)$ are the trilinear weights of sample $x_k$ and $\mu_j$, $\ell_j$
+    are the intensity and label stored at voxel $j$. This equals rendering the
+    volume masked to class $c$, for all classes in one pass and without a one-hot
+    labelmap, so memory does not grow with the number of classes.
+    """
+    C = subject.n_classes
+    N = height * width
+
+    # Change coordinates: camera → world → voxel (integer coordinates are voxel centers)
+    xform = subject.world_to_voxel @ rt_inv
+    src = transform_point(xform, src)
+    tgt = transform_point(xform, tgt)
+
+    # Linearly interpolate sample points along each ray
+    t = torch.linspace(0, 1, n_samples, device=rt_inv.device, dtype=src.dtype)
+    pts = torch.lerp(src[:, None], tgt[:, None], t[None, :, None, None])  # [B, n_samples, N, 3]
+    B = pts.shape[0]
+
+    # Per-axis strided indices and weights of the two neighbors. Out-of-bounds
+    # neighbors get zero weight, matching `grid_sample`'s zero padding
+    vol = subject.image.reshape(-1)
+    lab = subject.label.reshape(-1)
+    D, H, W = subject.image.shape[-3:]
+    itype = torch.int32 if vol.numel() < 2**31 else torch.int64
+    idx, wgt = [], []
+    for axis, (size, stride) in enumerate(((W, 1), (H, W), (D, H * W))):
+        x = pts[..., axis]
+        x0 = x.floor()
+        f = x - x0
+        i0 = x0.to(itype)
+        i1 = i0 + 1
+        idx.append((i0.clamp(0, size - 1) * stride, i1.clamp(0, size - 1) * stride))
+        wgt.append(((1 - f) * ((i0 >= 0) & (i0 < size)), f * ((i1 >= 0) & (i1 < size))))
+    (ix, iy, iz), (wx, wy, wz) = idx, wgt
+
+    # Route each neighbor's weighted intensity to the channel of its own label
+    out = torch.zeros(B, C, N, device=vol.device, dtype=torch.promote_types(vol.dtype, pts.dtype))
+    for dz, dy in itertools.product((0, 1), repeat=2):
+        izy = iz[dz] + iy[dy]
+        wzy = wz[dz] * wy[dy]
+        for dx in (0, 1):
+            j = izy + ix[dx]
+            out.scatter_add_(1, lab[j].long(), wzy * wx[dx] * vol[j])
+
+    out = out * step_size[:, None, :]
+    return out.reshape(B, C, height, width)
+
+
 def fused_supported(subject: Subject, B: int, n_pixels: int) -> bool:
     """Hard limits of the fused kernel: one volume, int32 indexing."""
     N = B * n_pixels
@@ -78,6 +149,7 @@ def render_fused(
     n_samples: int,
     height: int,
     width: int,
+    soft_labels: bool = False,
 ) -> Float[torch.Tensor, "B C H W"]:
     """Fused Triton implementation of `render`.
 
@@ -113,5 +185,6 @@ def render_fused(
         n_samples,
         C,
         width,
+        soft_labels and C > 1,
     )
     return out.reshape(B, C, height, width)

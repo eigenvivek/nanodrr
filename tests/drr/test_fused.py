@@ -81,7 +81,7 @@ def make_camera(device: torch.device, height: int = 16, width: int = 16):
     return k_inv, rt_inv, sdd_t, height, width
 
 
-def _render_both(parity, n_classes=1, orthographic=False, batched_pose=False):
+def _render_both(parity, n_classes=1, orthographic=False, batched_pose=False, soft_labels=False):
     """Render with the reference and with the implementation under test."""
     outs = []
     for backend, device in parity.runs():
@@ -96,13 +96,22 @@ def _render_both(parity, n_classes=1, orthographic=False, batched_pose=False):
             ).to(device)
         outs.append(
             render(
-                subject, k_inv, rt_inv, sdd, height, width, n_samples=200, orthographic=orthographic, backend=backend
+                subject,
+                k_inv,
+                rt_inv,
+                sdd,
+                height,
+                width,
+                n_samples=200,
+                orthographic=orthographic,
+                backend=backend,
+                soft_labels=soft_labels,
             ).cpu()
         )
     return outs
 
 
-def _grads(backend, device, kind, n_classes=1, orthographic=False):
+def _grads(backend, device, kind, n_classes=1, orthographic=False, soft_labels=False):
     """Gradients of a randomly weighted render w.r.t. the pose, volume, or intrinsics."""
     subject = make_random_subject(n_classes=n_classes).to(device)
     k_inv, rt_inv, sdd, height, width = make_camera(device)
@@ -114,7 +123,18 @@ def _grads(backend, device, kind, n_classes=1, orthographic=False):
     if kind == "volume":
         subject.convert_to_mu = False
         subject._image_hu = subject._image_hu.detach().requires_grad_(True)
-    out = render(subject, k, rt, s, height, width, n_samples=200, orthographic=orthographic, backend=backend)
+    out = render(
+        subject,
+        k,
+        rt,
+        s,
+        height,
+        width,
+        n_samples=200,
+        orthographic=orthographic,
+        backend=backend,
+        soft_labels=soft_labels,
+    )
     (out * w).sum().backward()
 
     if kind == "pose":
@@ -263,3 +283,16 @@ def test_unknown_backend_raises(device):
 
     with pytest.raises(ValueError, match="backend"):
         render(subject, k_inv, rt_inv, sdd, height, width, backend="cuda")
+
+
+@pytest.mark.parametrize("orthographic", [False, True])
+@pytest.mark.parametrize("batched_pose", [False, True])
+def test_backend_matches_torch_forward_soft_labels(parity, orthographic, batched_pose):
+    """Soft-label routing is continuous, so every channel must match (no flipped samples)."""
+    ref, out = _render_both(parity, 3, orthographic, batched_pose, soft_labels=True)
+    assert ((ref - out).abs().max() / ref.abs().max()).item() < 1e-4
+
+
+@pytest.mark.parametrize("kind", ["pose", "volume", "intrinsics"])
+def test_backend_matches_torch_gradients_soft_labels(parity, kind):
+    _assert_grads_match(parity, kind, n_classes=3, soft_labels=True)

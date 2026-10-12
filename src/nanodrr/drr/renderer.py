@@ -26,6 +26,7 @@ def render(
     height: int,
     width: int,
     n_samples: int = 500,
+    soft_labels: bool = False,
     orthographic: bool = False,
     src: Float[torch.Tensor, "B (H W) 3"] | None = None,
     tgt: Float[torch.Tensor, "B (H W) 3"] | None = None,
@@ -52,6 +53,11 @@ def render(
         width: Output image width in pixels.
         n_samples: Number of samples to take along each ray. Higher values
             improve accuracy at the cost of memory and compute.
+        soft_labels: If `False` (default), each sample's interpolated intensity
+            is assigned to the class of the nearest voxel. If `True`, trilinear
+            interpolation routes each neighboring voxel's contribution to that
+            voxel's own class, so structure boundaries are anti-aliased and the
+            per-structure channels are differentiable with respect to the pose.
         orthographic: Render with parallel beams instead of cone beams.
         src: Pre-computed ray source positions in camera coordinates. If `None`,
             computed from `k_inv` and `rt_inv`.
@@ -81,6 +87,7 @@ def render(
     # Compute step size [mm] in camera space
     step_size = (tgt - src).norm(dim=-1) / float(n_samples - 1)
 
+    soft_labels = soft_labels and subject.n_classes > 1
     if backend == "auto":
         eligible = (
             rt_inv.is_cuda
@@ -92,9 +99,9 @@ def render(
         )
         backend = "triton" if eligible else "torch"
     if backend == "triton":
-        return render_fused(subject, rt_inv, src, tgt, step_size, n_samples, height, width)
+        return render_fused(subject, rt_inv, src, tgt, step_size, n_samples, height, width, soft_labels)
     if backend == "torch":
-        return render_torch(subject, rt_inv, src, tgt, step_size, n_samples, height, width)
+        return render_torch(subject, rt_inv, src, tgt, step_size, n_samples, height, width, soft_labels)
     raise ValueError(f"Unknown backend {backend!r}; expected 'auto', 'torch', or 'triton'")
 
 

@@ -71,6 +71,7 @@ class DRR(torch.nn.Module):
         subject: Subject,
         rt_inv: Float[torch.Tensor, "B 4 4"],
         n_samples: int = 500,
+        soft_labels: bool = False,
         backend: str = "auto",
     ):
         return render(
@@ -81,6 +82,7 @@ class DRR(torch.nn.Module):
             self.height,
             self.width,
             n_samples,
+            soft_labels,
             self.orthographic,
             self.src,
             self.tgt,
