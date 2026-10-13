@@ -51,8 +51,9 @@ def render(
             point source to the imaging plane.
         height: Output image height in pixels.
         width: Output image width in pixels.
-        n_samples: Number of samples to take along each ray. Higher values
-            improve accuracy at the cost of memory and compute.
+        n_samples: Number of samples to take along the part of each ray that
+            lies inside the volume. Higher values improve accuracy at the cost
+            of memory and compute.
         soft_labels: If `False` (default), each sample's interpolated intensity
             is assigned to the class of the nearest voxel. If `True`, trilinear
             interpolation routes each neighboring voxel's contribution to that
@@ -66,8 +67,8 @@ def render(
         backend: `"torch"` uses the reference `grid_sample` implementation;
             `"triton"` uses the fused Triton kernel; `"auto"` (default) picks
             `"triton"` on CUDA with fp32/fp16/bf16 when eligible and `"torch"`
-            otherwise. The backends agree to float32 sampling precision (~1e-5);
-            `"triton"` assumes an affine `rt_inv` and has no double backward.
+            otherwise. The backends agree to float32 sampling precision (~1e-5)
+            and assume an affine `rt_inv`; `"triton"` has no double backward.
 
     Returns:
         Rendered synthetic radiograph. Shape is `(B, C, H, W)` where `C` is
@@ -84,8 +85,8 @@ def render(
     if src is None:
         src = _make_src(orthographic, tgt, sdd)
 
-    # Compute step size [mm] in camera space
-    step_size = (tgt - src).norm(dim=-1) / float(n_samples - 1)
+    # Compute step size [mm] in camera space (the backends rescale it when clipping rays to the volume)
+    step_size = (tgt - src).norm(dim=-1) / float(n_samples)
 
     soft_labels = soft_labels and subject.n_classes > 1
     if backend == "auto":

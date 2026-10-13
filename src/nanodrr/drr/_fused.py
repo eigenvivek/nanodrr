@@ -5,7 +5,6 @@ import triton.language as tl
 _BLOCK = 128
 _WARPS = 4
 _TILE_W = 16
-_MARGIN = 1.0  # extra voxels around the trilinear footprint box used for culling
 
 
 @triton.jit
@@ -98,13 +97,15 @@ def _fused_kernel(
     SOFT: tl.constexpr,
     SPLIT: tl.constexpr,
     TW: tl.constexpr,
-    MARGIN: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
     """Fused forward (BACKWARD=0) or backward (BACKWARD=1) ray march.
 
     Rays go from `src` to `tgt` (camera space); `M` maps camera space to voxel
     pixel coordinates, so sample `s` sits at `M @ [lerp(src, tgt, t_s), 1]`.
+    Each ray is clipped to the interval `[t0, t1]` over which its trilinear
+    footprint can touch the volume, and `t_s` is the midpoint of the `s`-th of
+    S equal parts of it. The backward pass differentiates through `t0` and `t1`.
     With a labelmap (C > 1), each sample's intensity is routed to the channel
     given by a nearest-neighbor label lookup at the same position. With SOFT,
     each of the 8 trilinear neighbors is instead routed to its own label.
@@ -112,9 +113,7 @@ def _fused_kernel(
     Each program marches BLOCK rays — a (BLOCK // TW) x TW pixel tile of an
     IW-wide image when TW > 0, else BLOCK consecutive rays — over the k-th of
     SPLIT chunks of the sample range, writing forward partials to slice k of
-    `out`. Before marching, the loop range is culled to the samples whose
-    trilinear footprint can touch the volume; skipped samples contribute
-    exactly zero, so culling is bitwise-neutral.
+    `out`.
     """
     pid = tl.program_id(0)
     k = pid % SPLIT
@@ -175,20 +174,21 @@ def _fused_kernel(
     dyp = m10 * ex + m11 * ey + m12 * ez
     dzp = m20 * ex + m21 * ey + m22 * ez
 
-    # Cull the sample range to the box outside of which the trilinear footprint
-    # is identically zero
-    tx0, tx1 = _axis_range(p0x, dxp, -1.0 - MARGIN, W + MARGIN)
-    ty0, ty1 = _axis_range(p0y, dyp, -1.0 - MARGIN, H + MARGIN)
-    tz0, tz1 = _axis_range(p0z, dzp, -1.0 - MARGIN, D + MARGIN)
+    # Clip each ray to the box outside of which the trilinear footprint is
+    # identically zero. Rays that miss it collapse to a point with zero step
+    tx0, tx1 = _axis_range(p0x, dxp, -1.0, W * 1.0)
+    ty0, ty1 = _axis_range(p0y, dyp, -1.0, H * 1.0)
+    tz0, tz1 = _axis_range(p0z, dzp, -1.0, D * 1.0)
     t_lo = tl.maximum(tl.maximum(tx0, ty0), tz0)
     t_hi = tl.minimum(tl.minimum(tx1, ty1), tz1)
-    f_lo = tl.maximum(tl.floor(t_lo / inv_s) - 2.0, 0.0)
-    f_hi = tl.minimum(tl.ceil(t_hi / inv_s) + 3.0, S * 1.0)
-    hit = m & (t_lo <= t_hi) & (f_lo < f_hi)
-    s_lo = tl.maximum(s_lo, tl.min(tl.where(hit, f_lo, S * 1.0).to(tl.int32), axis=0))
-    s_hi = tl.minimum(s_hi, tl.max(tl.where(hit, f_hi, 0.0).to(tl.int32), axis=0))
+    t0 = tl.minimum(tl.maximum(t_lo, 0.0), 1.0)
+    t1 = tl.maximum(tl.minimum(tl.maximum(t_hi, 0.0), 1.0), t0)
+    hit = m & (t0 < t1)
+    s_hi = s_lo + (s_hi - s_lo) * tl.max(hit.to(tl.int32), axis=0)  # skip tiles that miss
 
-    step = tl.load(step_ptr + base, mask=m, other=0.0)
+    # `step` arrives as the step size [mm] of the unclipped ray
+    step0 = tl.load(step_ptr + base, mask=m, other=0.0)
+    step = step0 * (t1 - t0)
     classes = tl.arange(0, CP2)
     cmask = classes < C
 
@@ -218,6 +218,8 @@ def _fused_kernel(
         gty = tl.zeros([BLOCK], dtype=tl.float32)
         gtz = tl.zeros([BLOCK], dtype=tl.float32)
         astep = tl.zeros([BLOCK], dtype=tl.float32)
+        adir = tl.zeros([BLOCK], dtype=tl.float32)
+        audir = tl.zeros([BLOCK], dtype=tl.float32)
     else:
         # With a labelmap, each lane keeps the running sum of one class in
         # registers and adds it to `out` when the class changes. A dense
@@ -228,7 +230,8 @@ def _fused_kernel(
         cur_sum = tl.zeros([BLOCK], dtype=tl.float32)
 
     for s in range(s_lo, s_hi):
-        t = s * inv_s
+        u = (s + 0.5) * inv_s
+        t = t0 + u * (t1 - t0)
         x = p0x + t * dxp
         y = p0y + t * dyp
         z = p0z + t * dzp
@@ -308,6 +311,12 @@ def _fused_kernel(
             gy = g * dvy
             gz = g * dvz
 
+            # Sensitivity to sliding the sample along the ray, for the clipping bounds
+            gdir = gx * dxp + gy * dyp + gz * dzp
+            adir += gdir
+            audir += u * gdir
+            astep += gg * val
+
             # dL/dM[i, j] = Σ_s gpos_i * q_j with q = lerp(src, tgt, t) (camera space)
             qx = sx + t * ex
             qy = sy + t * ey
@@ -336,7 +345,6 @@ def _fused_kernel(
                 gtx += t * gqx
                 gty += t * gqy
                 gtz += t * gqz
-                astep += gg * val
 
             if NEED_GVOL:
                 wx0 = 1 - fx
@@ -371,6 +379,54 @@ def _fused_kernel(
                 cur_cls, cur_sum = _run_length(out_ptr, out_base, cur_cls, cur_sum, cls, val, step, N, offs, m, C)
 
     if BACKWARD:
+        # Chain through the clipping bounds: t_s = (1 - u_s) t0 + u_s t1 and
+        # step = step0 (t1 - t0). An unclamped bound is t = (plane - p0_a) / delta_a
+        # for the axis a that sets it, so dt/dM[a] = -[q(t), 1] / delta_a
+        g0 = tl.where(hit & (t_lo > 0.0) & (t_lo < 1.0), adir - audir - step0 * astep, 0.0)
+        g1 = tl.where(hit & (t_hi > 0.0) & (t_hi < 1.0), audir + step0 * astep, 0.0)
+        rx = -1.0 / tl.where(tl.abs(dxp) < 1e-12, 1e-12, dxp)
+        ry = -1.0 / tl.where(tl.abs(dyp) < 1e-12, 1e-12, dyp)
+        rz = -1.0 / tl.where(tl.abs(dzp) < 1e-12, 1e-12, dzp)
+        k0x = tl.where(t_lo == tx0, g0 * rx, 0.0)
+        k0y = tl.where((t_lo == ty0) & (t_lo != tx0), g0 * ry, 0.0)
+        k0z = tl.where((t_lo != ty0) & (t_lo != tx0), g0 * rz, 0.0)
+        k1x = tl.where(t_hi == tx1, g1 * rx, 0.0)
+        k1y = tl.where((t_hi == ty1) & (t_hi != tx1), g1 * ry, 0.0)
+        k1z = tl.where((t_hi != ty1) & (t_hi != tx1), g1 * rz, 0.0)
+        q0x = sx + t0 * ex
+        q0y = sy + t0 * ey
+        q0z = sz + t0 * ez
+        q1x = sx + t1 * ex
+        q1y = sy + t1 * ey
+        q1z = sz + t1 * ez
+        a00 += k0x * q0x + k1x * q1x
+        a01 += k0x * q0y + k1x * q1y
+        a02 += k0x * q0z + k1x * q1z
+        a03 += k0x + k1x
+        a10 += k0y * q0x + k1y * q1x
+        a11 += k0y * q0y + k1y * q1y
+        a12 += k0y * q0z + k1y * q1z
+        a13 += k0y + k1y
+        a20 += k0z * q0x + k1z * q1x
+        a21 += k0z * q0y + k1z * q1y
+        a22 += k0z * q0z + k1z * q1z
+        a23 += k0z + k1z
+        if NEED_GCAM:
+            # The bounds also move with the endpoints: dt/dsrc = (1 - t) dt/dp0, dt/dtgt = t dt/dp0
+            wsx = k0x * (1 - t0) + k1x * (1 - t1)
+            wsy = k0y * (1 - t0) + k1y * (1 - t1)
+            wsz = k0z * (1 - t0) + k1z * (1 - t1)
+            wtx = k0x * t0 + k1x * t1
+            wty = k0y * t0 + k1y * t1
+            wtz = k0z * t0 + k1z * t1
+            gsx += m00 * wsx + m10 * wsy + m20 * wsz
+            gsy += m01 * wsx + m11 * wsy + m21 * wsz
+            gsz += m02 * wsx + m12 * wsy + m22 * wsz
+            gtx += m00 * wtx + m10 * wty + m20 * wtz
+            gty += m01 * wtx + m11 * wty + m21 * wtz
+            gtz += m02 * wtx + m12 * wty + m22 * wtz
+            astep = astep * (t1 - t0)
+
         # Per-program partials, reduced in torch, so the pose gradient is deterministic
         gMb = gM_ptr + pid * 12
         tl.store(gMb + 0, tl.sum(a00))
@@ -464,7 +520,7 @@ def _launch(
         H,
         W,
         n_samples,
-        1.0 / (n_samples - 1),
+        1.0 / n_samples,
         0 if broadcast_src else 3,
         3 if broadcast_src else N * 3,
         width,
@@ -478,7 +534,6 @@ def _launch(
         SOFT=soft,
         SPLIT=split,
         TW=tw,
-        MARGIN=_MARGIN,  # ty: ignore[invalid-argument-type]
         BLOCK=_BLOCK,  # ty: ignore[invalid-argument-type]
         num_warps=_WARPS,  # ty: ignore[unknown-argument]
     )
