@@ -16,14 +16,13 @@ from nanodrr.drr import render
 warnings.filterwarnings("ignore", message="dynamo_pgo force disabled")
 
 
-def render_torch(*args):
-    """Reference grid_sample backend (pinned so `auto` doesn't pick triton)."""
-    return render(*args, backend="torch")
+def make_render(backend: str, soft_labels: bool = False):
+    """Render with a pinned backend (so `auto` doesn't pick triton) and label assignment."""
 
+    def func(*args):
+        return render(*args, backend=backend, soft_labels=soft_labels)
 
-def render_triton(*args):
-    """Fused Triton backend."""
-    return render(*args, backend="triton")
+    return func
 
 
 def with_pose_grad(func):
@@ -294,6 +293,10 @@ def run_device(device: str, args) -> list[dict]:
     results = []
 
     task = "forward+backward" if args.grad else "forward"
+    if args.soft_labels:
+        task += " (soft labels)"
+    render_torch = make_render("torch", args.soft_labels)
+    render_triton = make_render("triton", args.soft_labels)
 
     def attempt(name, func, *inputs):
         is_compiled = hasattr(func, "_torchdynamo_orig_callable")  # check before with_pose_grad wraps it
@@ -311,7 +314,7 @@ def run_device(device: str, args) -> list[dict]:
         mode = "reduce-overhead" if device == "cuda" else None
         return torch.compile(func, mode=mode, fullgraph=True)
 
-    label_path = args.label or ("demo" if args.labels else None)
+    label_path = args.label or ("demo" if args.labels or args.soft_labels else None)
     inputs = setup_data(args.image, label_path, device)
     n_classes = inputs[0].n_classes
     print(f"Task: {task}, {n_classes} class{'es' if n_classes != 1 else ''}")
@@ -395,6 +398,11 @@ def main():
     parser.add_argument("--image", default=None, help="CT volume (default: the DeepFluoro demo subject)")
     parser.add_argument("--label", default=None, help="Labelmap for multi-class rendering")
     parser.add_argument("--labels", action="store_true", help="Multi-class rendering with the demo subject's labelmap")
+    parser.add_argument(
+        "--soft-labels",
+        action="store_true",
+        help="Multi-class rendering with trilinear (partial-volume) label assignment; implies --labels",
+    )
     parser.add_argument("--grad", action="store_true", help="Time forward + backward w.r.t. the pose, not forward only")
     parser.add_argument("--runs", type=int, default=None, help="Timed runs per configuration")
     parser.add_argument("--iterations", type=int, default=None, help="Renders per timed run")
