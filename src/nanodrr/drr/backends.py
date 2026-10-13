@@ -32,6 +32,9 @@ def render_torch(
     xform = subject.world_to_grid @ rt_inv
     src = transform_point(xform, src)
     tgt = transform_point(xform, tgt)
+    D, H, W = subject.image.shape[-3:]
+    hi = 1 + 1 / torch.tensor([W, H, D], device=device, dtype=torch.float32)
+    src, tgt, step_size = _clip_rays(src, tgt, step_size, -hi, hi, n_samples)
 
     # Linearly interpolate sample points along each ray
     t = torch.linspace(0, 1, n_samples, device=device, dtype=src.dtype)
@@ -69,6 +72,40 @@ def render_torch(
     return out.reshape(B, C, height, width)
 
 
+def _clip_rays(
+    src: Float[torch.Tensor, "B (H W) 3"] | Float[torch.Tensor, "B 1 3"],
+    tgt: Float[torch.Tensor, "B (H W) 3"],
+    step_size: Float[torch.Tensor, "B (H W)"],
+    lo: Float[torch.Tensor, "3"],
+    hi: Float[torch.Tensor, "3"],
+    n_samples: int,
+) -> tuple[Float[torch.Tensor, "B (H W) 3"], Float[torch.Tensor, "B (H W) 3"], Float[torch.Tensor, "B (H W)"]]:
+    r"""Clip each ray to the box `[lo, hi]` that supports the interpolated volume.
+
+    The ray $x(t) = s + t (g - s)$ crosses the box for $t \in [t_0, t_1]$ (slab method):
+
+    $$t_0 = \max\Big(0, \max_a \min(t_a^-, t_a^+)\Big), \qquad
+    t_1 = \min\Big(1, \min_a \max(t_a^-, t_a^+)\Big)$$
+
+    where $t_a^\pm$ are the parameters at which it crosses the two planes bounding
+    axis $a$. The returned endpoints are inset by half a step, so `n_samples`
+    evenly spaced points between them are the midpoints of `n_samples` equal
+    parts of $[t_0, t_1]$, and the step size is scaled by $t_1 - t_0$. Rays that
+    miss the box collapse to a point with zero step size.
+    """
+    dtype = src.dtype
+    ftype = torch.promote_types(dtype, torch.float32)  # half-precision bounds are too coarse
+    src, tgt = src.to(ftype), tgt.to(ftype)
+    ray = tgt - src
+    inv = 1.0 / torch.where(ray.abs() < 1e-12, 1e-12, ray)
+    ta, tb = (lo - src) * inv, (hi - src) * inv
+    t0 = torch.minimum(ta, tb).amax(dim=-1, keepdim=True).clamp(0.0, 1.0)
+    t1 = torch.maximum(ta, tb).amin(dim=-1, keepdim=True).clamp(0.0, 1.0).maximum(t0)
+    half = 0.5 * (t1 - t0) / n_samples
+    src, tgt = src + (t0 + half) * ray, src + (t1 - half) * ray
+    return src.to(dtype), tgt.to(dtype), step_size * (t1 - t0)[..., 0].to(dtype)
+
+
 def _render_soft(
     subject: Subject,
     rt_inv: Float[torch.Tensor, "B 4 4"],
@@ -98,6 +135,9 @@ def _render_soft(
     xform = subject.world_to_voxel @ rt_inv
     src = transform_point(xform, src)
     tgt = transform_point(xform, tgt)
+    D, H, W = subject.image.shape[-3:]
+    hi = torch.tensor([W, H, D], device=src.device, dtype=torch.float32)
+    src, tgt, step_size = _clip_rays(src, tgt, step_size, -torch.ones_like(hi), hi, n_samples)
 
     # Linearly interpolate sample points along each ray
     t = torch.linspace(0, 1, n_samples, device=rt_inv.device, dtype=src.dtype)
@@ -108,7 +148,6 @@ def _render_soft(
     # neighbors get zero weight, matching `grid_sample`'s zero padding
     vol = subject.image.reshape(-1)
     lab = subject.label.reshape(-1)
-    D, H, W = subject.image.shape[-3:]
     itype = torch.int32 if vol.numel() < 2**31 else torch.int64
     idx, wgt = [], []
     for axis, (size, stride) in enumerate(((W, 1), (H, W), (D, H * W))):

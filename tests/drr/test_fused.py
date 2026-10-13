@@ -147,8 +147,10 @@ def _grads(backend, device, kind, n_classes=1, orthographic=False, soft_labels=F
 def _assert_grads_match(parity, kind, **kwargs):
     ref = _grads(parity.ref_backend, parity.ref_device, kind, **kwargs)
     out = _grads(parity.backend, parity.device, kind, **kwargs)
+    # One scale for all inputs: clipped rays do not depend on the SDD, whose gradient is zero
+    scale = max(r.abs().max() for r in ref)
     for r, o in zip(ref, out):
-        assert ((r - o).abs().max() / r.abs().max()).item() < 1e-3
+        assert ((r - o).abs().max() / scale).item() < 1e-3
 
 
 def _assert_render_parity(ref, out, n_classes):
@@ -239,6 +241,30 @@ def test_backend_broadcasts_pose_batch(parity, n_classes):
 
     assert out.shape == ref.shape == (2, n_classes, 16, 16)
     _assert_render_parity(ref, out, n_classes)
+
+
+@pytest.mark.parametrize("orthographic", [False, True])
+def test_rays_are_clipped_to_the_volume(parity, orthographic):
+    """Rays that miss the volume render exactly zero; the rest match a much denser render."""
+    outs, grads = [], []
+    for backend, device in parity.runs():
+        subject = make_random_subject().to(device)
+        _, rt_inv, sdd, height, width = make_camera(device)
+        k_inv = make_k_inv(100.0, 8.0, 8.0, 0.0, 0.0, height, width, device=device)  # 128 mm detector, 32 mm volume
+        rt = rt_inv.clone().requires_grad_(True)
+        kwargs = {"orthographic": orthographic, "backend": backend}
+        out = render(subject, k_inv, rt, sdd, height, width, n_samples=50, **kwargs)
+        out.square().sum().backward()
+        dense = render(subject, k_inv, rt_inv, sdd, height, width, n_samples=2000, **kwargs)
+
+        assert (out[..., 0, 0] == 0).all() and (out == 0).float().mean() > 0.25
+        assert ((out - dense).abs().max() / dense.abs().max()).item() < 2e-2
+        assert torch.isfinite(rt.grad).all()
+        outs.append(out.detach().cpu())
+        grads.append(rt.grad[0, :3].cpu())
+
+    _assert_render_parity(outs[0], outs[1], n_classes=1)
+    assert ((grads[0] - grads[1]).abs().max() / grads[0].abs().max()).item() < 1e-3
 
 
 @cuda

@@ -11,7 +11,7 @@ icon: lucide/rocket
 A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the following improvements:
 
 - Optimized, pure PyTorch implementation (**~5× faster than `DiffDRR` at baseline**)
-- Fused Triton rendering kernel, used by default on CUDA (**up to ~80× faster than `DiffDRR`**)
+- Fused Triton rendering kernel, used by default on CUDA (**~40× faster than `DiffDRR`**)
 - Modular design (freely swap subjects, extrinsics, and intrinsics during rendering)
 - Compatibility with `torch.compile` and mixed precision
 - Extensive type hints with `jaxtyping`
@@ -25,8 +25,6 @@ All changes to `DiffDRR` are summarized [here](changes.md).
 ## Installation
 
 !!! note "PyTorch version"
-    On `pytorch<2.9`, `torch.compile` with `bfloat16` is slower than eager for the pure PyTorch backend due to a CUDA graph capture issue (see [Benchmarks](#benchmarks)). The fused Triton backend is unaffected.
-
     MPS-accelerated differentiable rendering requires `pytorch>=2.13`, which is the first release with native MPS kernels for `grid_sample` backwards and 3D nearest-neighbor sampling.
 
 To strictly install the renderer:
@@ -44,10 +42,10 @@ pip install "nanodrr[all]"    # All extras
 ## Benchmarks
 
 !!! tip "Highlights"
-    - **~5× faster** than [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the pure PyTorch backend (1,093 FPS vs 223 FPS)
-    - **~57× faster** with the fused Triton kernel, without compilation (12,600 FPS vs 223 FPS)
-    - **~80× faster** with `torch.compile` and `bfloat16` (17,820 FPS vs 223 FPS)
-    - **~3.5× less memory** than `DiffDRR` (322 MB vs 1,170 MB peak reserved with `bfloat16` + compile)
+    - **~5× faster** than [`DiffDRR`](https://github.com/eigenvivek/DiffDRR) with the pure PyTorch backend (1,048 FPS vs 226 FPS)
+    - **~39× faster** with the fused Triton kernel, without compilation (8,717 FPS vs 226 FPS)
+    - **~40× faster** with `torch.compile` and `bfloat16` (9,008 FPS vs 226 FPS)
+    - **~4× less memory** than `DiffDRR` (276 MB vs 1,092 MB peak reserved with `bfloat16` + compile)
 
 ![Benchmarking runtime, FPS, and memory usage.](assets/images/benchmark.png#only-light)
 ![Benchmarking runtime, FPS, and memory usage.](assets/images/benchmark_dark.png#only-dark)
