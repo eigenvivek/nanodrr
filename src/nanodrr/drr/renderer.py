@@ -12,7 +12,7 @@ _FUSED_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
 @functools.cache
 def _triton_available() -> bool:
     try:
-        from . import _fused  # noqa: F401
+        from . import _triton  # noqa: F401
     except Exception:
         return False
     return True

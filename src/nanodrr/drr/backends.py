@@ -195,7 +195,7 @@ def render_fused(
     One kernel marches each ray in registers, so the sample grid and
     per-sample intensities of the `grid_sample` path are never materialized.
     """
-    from ._fused import fused_raymarch
+    from ._triton import fused_raymarch
 
     C = subject.n_classes
     vol = subject.image[0, 0].contiguous()
