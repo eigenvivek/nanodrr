@@ -97,7 +97,7 @@ class Subject(torch.nn.Module):
 
     def __setattr__(self, name: str, value) -> None:
         super().__setattr__(name, value)
-        if name == "_image_hu":  # a new volume invalidates the LAC cache
+        if name == "_image_hu":
             self._image_mu_cache = None
 
     @property
