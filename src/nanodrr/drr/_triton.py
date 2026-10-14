@@ -612,4 +612,4 @@ def _backward(go, vol, lab, M, src, tgt, step, n_samples, n_classes, width, need
     return gvol, gM, gsrc, gtgt, gstep
 
 
-fused_raymarch = register_fused_op("triton", "fused_raymarch", _forward, _backward)
+triton_raymarch = register_fused_op("triton", "triton_raymarch", _forward, _backward)
