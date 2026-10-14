@@ -192,7 +192,7 @@ def load_backend(name: str):
     """The differentiable op of fused backend `name`, imported on first use. Explicit imports (not
     `importlib`) so that `torch.compile(fullgraph=True)` can trace through the lookup."""
     if name == "triton":
-        from ._fused import fused_raymarch
+        from ._triton import fused_raymarch
 
         return fused_raymarch
     if name == "metal":

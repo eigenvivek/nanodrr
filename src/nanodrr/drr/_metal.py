@@ -1,7 +1,7 @@
 """Fused Metal ray-marching kernels, compiled at runtime with `torch.mps.compile_shader`.
 
 One thread marches one ray, so the sample grid and per-sample intensities of the `grid_sample` path are
-never materialized. The semantics are those of the Triton kernel (see `_fused.py`): rays are clipped to
+never materialized. The semantics are those of the Triton kernel (see `_triton.py`): rays are clipped to
 the volume and sampled at midpoints, with trilinear intensities (zero padded), nearest or per-neighbor
 (soft) label routing, and analytic gradients for the camera-to-voxel transform, the ray endpoints, the
 step size and the volume. The volume and labelmap may be float32, float16 or bfloat16; they are read in
