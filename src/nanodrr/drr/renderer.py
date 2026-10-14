@@ -53,10 +53,12 @@ def render(
         tgt: Pre-computed ray target positions (detector pixel locations) in
             camera coordinates. If `None`, computed from `k_inv` and `rt_inv`.
         backend: `"torch"` uses the reference `grid_sample` implementation;
-            `"triton"` uses the fused Triton kernel; `"auto"` (default) picks
-            `"triton"` on CUDA with fp32/fp16/bf16 when eligible and `"torch"`
-            otherwise. The backends agree to float32 sampling precision (~1e-5)
-            and assume an affine `rt_inv`; `"triton"` has no double backward.
+            `"triton"` uses the fused Triton kernel;
+            `"metal"` uses the fused Metal shader (MPS); `"auto"` (default) picks
+            `"triton"` on CUDA or `"metal"` on MPS with fp32/fp16/bf16 when eligible
+            and `"torch"` otherwise. The backends agree to float32 sampling precision
+            (~1e-5) and assume an affine `rt_inv`; `"triton"` and `"metal"` have no
+            double backward.
 
     Returns:
         Rendered synthetic radiograph. Shape is `(B, C, H, W)` where `C` is

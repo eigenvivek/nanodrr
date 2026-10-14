@@ -186,7 +186,7 @@ def render_fused(
     width: int,
     soft_labels: bool = False,
 ) -> Float[torch.Tensor, "B C H W"]:
-    """Fused implementation of `render`, running `backend` (`"triton"`).
+    """Fused implementation of `render`, running `backend` (`"triton"` or `"metal"`).
 
     One kernel marches each ray in registers, so the sample grid and per-sample intensities
     of the `grid_sample` path are never materialized. `soft_labels` must already be `False` for a
@@ -210,7 +210,16 @@ def render_fused(
     if vol.dtype not in _fused.FUSED_DTYPES:
         vol = vol.float()
     vol = vol.contiguous()
-    lab = subject.label.reshape(D, H, W).contiguous() if C > 1 else vol
+    lab = vol  # unused with a single class
+    if C > 1:
+        lab = subject.label.reshape(D, H, W)
+        if be.matching_label_dtype:
+            if C - 1 > 2 / torch.finfo(vol.dtype).eps:  # beyond 2 / eps, integers are no longer exact
+                raise ValueError(
+                    f"class labels up to {C - 1} are not exact in {vol.dtype}; use a float32 volume or backend='torch'"
+                )
+            lab = lab.to(vol.dtype)
+        lab = lab.contiguous()
 
     # The kernels sample at pixel coordinates, which is exactly world_to_voxel. Geometry is
     # computed in float32: the volume may be stored in half precision, but half-precision sample

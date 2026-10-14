@@ -1,6 +1,6 @@
 """The shared layer of the fused backends (`_fused.py`), on the CPU with a pure-torch reference backend.
 
-The Triton kernel needs a GPU, but everything around them — the differentiable ops, their
+The Triton and Metal kernels need a GPU, but everything around them — the differentiable ops, their
 fakes, the autograd wiring and the broadcast reductions — is common code. This file exercises it
 with a backend whose `forward` is plain torch and whose `backward` is autograd of that forward.
 """

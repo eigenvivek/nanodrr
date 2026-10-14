@@ -16,10 +16,12 @@ class Fused:
 
 @pytest.fixture(params=list(DEVICE_BACKENDS.items()), ids=lambda p: f"{p[1]}-{p[0]}")
 def fused(request) -> Fused:
-    """Each fused backend (Triton on CUDA) that this machine can run."""
+    """Each fused backend (Triton on CUDA, Metal on MPS) that this machine can run."""
     device, backend = request.param
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("requires CUDA")
+    if device == "mps" and not torch.backends.mps.is_available():
+        pytest.skip("requires MPS")
     if not available(backend, torch.float32):
         pytest.skip(f"the {backend} backend is unavailable")
     return Fused(backend, torch.device(device))

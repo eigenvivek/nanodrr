@@ -1,4 +1,4 @@
-"""How `render` chooses between the torch path and the fused backends (Triton on CUDA)."""
+"""How `render` chooses between the torch path and the fused backends (Triton on CUDA, Metal on MPS)."""
 
 import pytest
 import torch
@@ -23,7 +23,8 @@ def test_auto_picks_the_fused_backend(fused, soft_labels):
 def test_auto_compiles_with_gradients(fused):
     """`backend="auto"` (the default) must trace under `torch.compile(fullgraph=True)`.
 
-    Choosing the backend must not call anything dynamo cannot trace, not even behind a cache wrapper.
+    Choosing the backend must not call anything dynamo cannot trace (for Metal, `compile_shader`),
+    not even behind a cache wrapper.
     """
     subject, k_inv, rt_inv, sdd, h, w = fused_setup(fused, n_classes=3)
     weights = torch.randn(1, 3, h, w, device=fused.device, generator=torch.Generator(fused.device).manual_seed(0))

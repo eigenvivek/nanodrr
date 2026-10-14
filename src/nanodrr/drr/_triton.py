@@ -7,7 +7,7 @@ sample goes to the channel of its nearest voxel's label, or (soft labels) each o
 neighbors goes to its own label. The backward pass differentiates through the clipping bounds, the
 ray endpoints and the step size, and optionally the volume.
 
-The shared layer (differentiable op, input preparation) is in `_fused.py` and `backends.py`.
+The Metal backend (`_metal.py`) implements the same semantics. The shared layer is in `_fused.py`.
 """
 
 import torch

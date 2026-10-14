@@ -1,4 +1,4 @@
-"""Code shared by the fused ray-marching backends (currently Triton on CUDA).
+"""Code shared by the fused ray-marching backends: Triton on CUDA, Metal on MPS.
 
 A fused backend is a pair of kernels, `forward` and `backward`, packaged as a `FusedBackend`.
 Everything around them is common and lives here:
@@ -8,8 +8,8 @@ Everything around them is common and lives here:
 - `pick_fused_backend` is the `backend="auto"` policy (device, dtype, size and determinism limits);
   `render_fused` in `backends.py` prepares the inputs and calls the backend's op.
 
-This module must not import `triton`, so that it loads everywhere.
-Backends live in `_triton.py` and are imported lazily by name.
+This module must not import `triton` or `torch.mps` specifics, so that it loads everywhere.
+Backends live in `_triton.py` and `_metal.py` and are imported lazily by name.
 """
 
 import dataclasses
@@ -21,7 +21,7 @@ from jaxtyping import Float
 from ..data import Subject
 
 # Fused backend for each device type; `render(backend="auto")` picks from this table
-DEVICE_BACKENDS = {"cuda": "triton"}
+DEVICE_BACKENDS = {"cuda": "triton", "mps": "metal"}
 FUSED_BACKENDS = tuple(DEVICE_BACKENDS.values())
 FUSED_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
 
@@ -43,7 +43,9 @@ class FusedBackend:
 
     `name` is used in messages (it is also the key in `DEVICE_BACKENDS`, which says which device the
     kernels run on) and `op_name` names the registered ops (`nanodrr::{op_name}` and
-    `nanodrr::{op_name}_bwd`). `supports(dtype)` says whether a volume of that dtype can run.
+    `nanodrr::{op_name}_bwd`). `supports(dtype)` says whether a volume of that dtype can run, and
+    `matching_label_dtype` that the labelmap must be stored in the volume's dtype (the kernel has one
+    element type).
     """
 
     name: str
@@ -51,6 +53,7 @@ class FusedBackend:
     forward: Callable
     backward: Callable
     supports: Callable[[torch.dtype], bool]
+    matching_label_dtype: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -78,6 +81,10 @@ def _module(name: str):
         from . import _triton
 
         return _triton
+    if name == "metal":
+        from . import _metal
+
+        return _metal
     raise ValueError(f"Unknown fused backend {name!r}; expected one of {FUSED_BACKENDS}")
 
 
