@@ -6,6 +6,7 @@ from jaxtyping import Float
 
 from ..data import Subject
 from ..geometry import transform_point
+from . import _fused
 
 
 def render_torch(
@@ -173,13 +174,8 @@ def _render_soft(
     return out.reshape(B, C, height, width)
 
 
-def fused_supported(subject: Subject, B: int, n_pixels: int) -> bool:
-    """Hard limits of the fused kernel: one volume, int32 indexing."""
-    N = B * n_pixels
-    return subject.image.shape[0] == 1 and max(subject.image.numel(), subject.n_classes * N, 3 * N) < 2**31
-
-
 def render_fused(
+    backend: str,
     subject: Subject,
     rt_inv: Float[torch.Tensor, "B 4 4"],
     src: Float[torch.Tensor, "B (H W) 3"] | Float[torch.Tensor, "B 1 3"],
@@ -190,40 +186,48 @@ def render_fused(
     width: int,
     soft_labels: bool = False,
 ) -> Float[torch.Tensor, "B C H W"]:
-    """Fused Triton implementation of `render`.
+    """Fused implementation of `render`, running `backend` (`"triton"`).
 
-    One kernel marches each ray in registers, so the sample grid and
-    per-sample intensities of the `grid_sample` path are never materialized.
+    One kernel marches each ray in registers, so the sample grid and per-sample intensities
+    of the `grid_sample` path are never materialized. `soft_labels` must already be `False` for a
+    single-class subject (`render` normalizes it).
     """
-    from ._triton import fused_raymarch
+    be = _fused.load_backend(backend)
+    if _fused.DEVICE_BACKENDS.get(rt_inv.device.type) != backend:
+        device_type = next(device for device, name in _fused.DEVICE_BACKENDS.items() if name == backend)
+        raise ValueError(f"backend={backend!r} requires {device_type.upper()} tensors; use backend='torch'")
 
     C = subject.n_classes
-    vol = subject.image[0, 0].contiguous()
-    lab = subject.label[0, 0].contiguous() if C > 1 else vol
-
-    # The kernel samples at pixel coordinates, which is exactly world_to_voxel.
-    # Geometry is computed in float32: the volume may be stored in half
-    # precision, but half-precision sample coordinates cost ~20x accuracy
-    M = (subject.world_to_voxel.float() @ rt_inv.float())[:, :3, :]
-
-    # Broadcast the pose batch against shared ray geometry; the kernel
-    # requires dense [B, ...] inputs
-    B = max(M.shape[0], tgt.shape[0])
-    if M.shape[0] != B:
-        M = M.expand(B, -1, -1)
-    if not fused_supported(subject, B, height * width):
+    B = max(rt_inv.shape[0], tgt.shape[0])
+    if not _fused.fused_supported(subject, B, height * width):
         raise ValueError("inputs exceed the fused kernel's limits; use backend='torch'")
 
-    out = fused_raymarch(
+    # reshape (a view) rather than [0, 0]: its backward is a view too, whereas select's backward
+    # materializes a full-volume zero tensor. Half-precision volumes are read in place and
+    # promoted per sample by the kernel
+    D, H, W = subject.image.shape[2:]
+    vol = subject.image.reshape(D, H, W)
+    if vol.dtype not in _fused.FUSED_DTYPES:
+        vol = vol.float()
+    vol = vol.contiguous()
+    lab = subject.label.reshape(D, H, W).contiguous() if C > 1 else vol
+
+    # The kernels sample at pixel coordinates, which is exactly world_to_voxel. Geometry is
+    # computed in float32: the volume may be stored in half precision, but half-precision sample
+    # coordinates cost ~20x accuracy
+    M = (subject.world_to_voxel.float() @ rt_inv.float())[:, :3, :]
+
+    # Broadcast the pose batch against shared ray geometry; the kernels require dense [B, ...] inputs
+    out = be.op(
         vol,
         lab,
-        M,
+        M.expand(B, -1, -1),
         src.expand(B, -1, -1).float().contiguous(),
         tgt.expand(B, -1, -1).float().contiguous(),
         step_size.expand(B, -1).float().contiguous(),
         n_samples,
         C,
         width,
-        soft_labels and C > 1,
+        soft_labels,
     )
     return out.reshape(B, C, height, width)

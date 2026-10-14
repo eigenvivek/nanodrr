@@ -1,6 +1,20 @@
+"""Fused Triton ray-marching kernel for CUDA.
+
+One program marches a tile of rays, so the sample grid and per-sample intensities of the `grid_sample`
+path are never materialized. Each ray is clipped to the interval over which its trilinear footprint can
+touch the volume and sampled at the midpoints of `n_samples` equal parts of it. With a labelmap, each
+sample goes to the channel of its nearest voxel's label, or (soft labels) each of its 8 trilinear
+neighbors goes to its own label. The backward pass differentiates through the clipping bounds, the
+ray endpoints and the step size, and optionally the volume.
+
+The shared layer (differentiable op, input preparation) is in `_fused.py` and `backends.py`.
+"""
+
 import torch
 import triton
 import triton.language as tl
+
+from ._fused import FUSED_DTYPES, FusedBackend, register_fused_op, src_strides
 
 _BLOCK = 128
 _WARPS = 4
@@ -499,7 +513,7 @@ def _launch(
     B, N, _ = tgt.shape
     D, H, W = vol.shape
     nblocks, tw = _config(N, width)
-    broadcast_src = src.shape[1] == 1
+    src_ray_stride, src_batch_stride = src_strides(src)
     grid = (B * nblocks * split,)
     _fused_kernel[grid](
         vol,
@@ -521,8 +535,8 @@ def _launch(
         W,
         n_samples,
         1.0 / n_samples,
-        0 if broadcast_src else 3,
-        3 if broadcast_src else N * 3,
+        src_ray_stride,
+        src_batch_stride,
         width,
         B * n_classes * N,
         B * N,
@@ -539,27 +553,9 @@ def _launch(
     )
 
 
-@torch.library.custom_op("nanodrr::fused_raymarch", mutates_args=())
-def fused_raymarch(
-    vol: torch.Tensor,
-    lab: torch.Tensor,
-    M: torch.Tensor,
-    src: torch.Tensor,
-    tgt: torch.Tensor,
-    step: torch.Tensor,
-    n_samples: int,
-    n_classes: int,
-    width: int,
-    soft_labels: bool = False,
-) -> torch.Tensor:
-    """Fused differentiable ray marching.
-
-    Registered as a custom op so `torch.compile` treats the kernel as opaque:
-    inductor takes shapes from the fake impl below rather than re-compiling
-    the Triton source, which would break its constexpr dead-branch pruning.
-    """
+def _forward(vol, lab, M, src, tgt, step, n_samples, n_classes, width, soft_labels):
+    """Forward launch of the fused kernel: the float32 render `[B, C, N]`."""
     B, N, _ = tgt.shape
-    M = M.contiguous()
     split = _split(B, _config(N, width)[0], n_samples)
     alloc = torch.empty if n_classes == 1 else torch.zeros  # with a labelmap, the kernel adds into `out`
     out = alloc(split, B, n_classes, N, device=vol.device, dtype=torch.float32)
@@ -586,47 +582,11 @@ def fused_raymarch(
         need_gcam=False,
         soft=soft_labels,
     )
-    result = out[0] if split == 1 else out.sum(dim=0)
-    return result.to(vol.dtype)
+    return out[0] if split == 1 else out.sum(dim=0)
 
 
-@fused_raymarch.register_fake
-def _(vol, lab, M, src, tgt, step, n_samples, n_classes, width, soft_labels=False):
-    B, N, _ = tgt.shape
-    return torch.empty(B, n_classes, N, device=vol.device, dtype=vol.dtype)
-
-
-def _setup_context(ctx, inputs, output):
-    vol, lab, M, src, tgt, step, n_samples, n_classes, width, soft_labels = inputs
-    ctx.save_for_backward(vol, lab, M.contiguous(), src, tgt, step)
-    ctx.n_samples = n_samples
-    ctx.n_classes = n_classes
-    ctx.width = width
-    ctx.soft_labels = soft_labels
-
-
-@torch.library.custom_op("nanodrr::fused_raymarch_bwd", mutates_args=())
-def _fused_raymarch_bwd(
-    go: torch.Tensor,
-    vol: torch.Tensor,
-    lab: torch.Tensor,
-    M: torch.Tensor,
-    src: torch.Tensor,
-    tgt: torch.Tensor,
-    step: torch.Tensor,
-    n_samples: int,
-    n_classes: int,
-    width: int,
-    need_gvol: bool,
-    need_gcam: bool,
-    soft_labels: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Backward kernel launch, opaque to `torch.compile` like the forward."""
-    if need_gvol and torch.are_deterministic_algorithms_enabled():
-        raise RuntimeError(
-            "Volume gradients on the triton backend use nondeterministic atomics; "
-            "disable deterministic algorithms or use backend='torch'"
-        )
+def _backward(go, vol, lab, M, src, tgt, step, n_samples, n_classes, width, need_gvol, need_gcam, soft_labels):
+    """Backward launch of the fused kernel: `(gvol, gM, gsrc, gtgt, gstep)`, reduced over programs."""
     B, N, _ = tgt.shape
     split = _split(B, _config(N, width)[0], n_samples)
     gM_part = torch.empty(B * _config(N, width)[0] * split, 12, device=M.device, dtype=torch.float32)
@@ -664,64 +624,12 @@ def _fused_raymarch_bwd(
     return gvol, gM, gsrc, gtgt, gstep
 
 
-@_fused_raymarch_bwd.register_fake
-def _(
-    go,
-    vol,
-    lab,
-    M,
-    src,
-    tgt,
-    step,
-    n_samples,
-    n_classes,
-    width,
-    need_gvol,
-    need_gcam,
-    soft_labels=False,
-):
-    B, N, _ = tgt.shape
-    gM = torch.empty(B, 3, 4, device=M.device, dtype=torch.float32)
-    gvol = torch.empty(vol.shape, device=M.device, dtype=torch.float32) if need_gvol else gM.new_empty(0)
-    gsrc = torch.empty(B, N, 3, device=M.device, dtype=torch.float32) if need_gcam else gM.new_empty(0)
-    gtgt = torch.empty(B, N, 3, device=M.device, dtype=torch.float32) if need_gcam else gM.new_empty(0)
-    gstep = torch.empty(B, N, device=M.device, dtype=torch.float32) if need_gcam else gM.new_empty(0)
-    return gvol, gM, gsrc, gtgt, gstep
-
-
-def _backward(ctx, go):
-    vol, lab, M, src, tgt, step = ctx.saved_tensors
-    need_gvol = ctx.needs_input_grad[0]
-    need_gcam = any(ctx.needs_input_grad[i] for i in (3, 4, 5))
-    gvol, gM, gsrc, gtgt, gstep = _fused_raymarch_bwd(
-        go,
-        vol,
-        lab,
-        M,
-        src,
-        tgt,
-        step,
-        ctx.n_samples,
-        ctx.n_classes,
-        ctx.width,
-        need_gvol,
-        need_gcam,
-        ctx.soft_labels,
+BACKEND = register_fused_op(
+    FusedBackend(
+        name="triton",
+        op_name="fused_raymarch",
+        forward=_forward,
+        backward=_backward,
+        supports=lambda dtype: dtype in FUSED_DTYPES,
     )
-    if need_gcam and src.shape[1] == 1:
-        gsrc = gsrc.sum(dim=1, keepdim=True)
-    return (
-        gvol.to(vol.dtype) if need_gvol else None,
-        None,  # lab: integer routing, not differentiable
-        gM.to(M.dtype),
-        gsrc.to(src.dtype) if need_gcam else None,
-        gtgt.to(tgt.dtype) if need_gcam else None,
-        gstep.to(step.dtype) if need_gcam else None,
-        None,  # n_samples
-        None,  # n_classes
-        None,  # width
-        None,  # soft_labels
-    )
-
-
-torch.library.register_autograd("nanodrr::fused_raymarch", _backward, setup_context=_setup_context)
+)
