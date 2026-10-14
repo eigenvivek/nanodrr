@@ -91,6 +91,11 @@ class PeakMemory(TorchDispatchMode):
         self.storages.discard(ptr)
 
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        # Inputs are not allocations: without this, a view of storage that existed before the mode
+        # (e.g. a reshape of the resident volume) would be counted as a fresh allocation of all of it
+        for t in tree_leaves((args, kwargs)):
+            if isinstance(t, torch.Tensor) and t.device.type == self.device:
+                self.storages.add(t.untyped_storage().data_ptr())
         out = func(*args, **(kwargs or {}))
         for t in tree_leaves(out):
             if not isinstance(t, torch.Tensor) or t.device.type != self.device:
