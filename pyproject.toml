@@ -48,6 +48,9 @@ ignore = [
 [tool.ty.src]
 include = ["src"]
 
+[tool.ty.rules]
+invalid-mutable-override = "ignore"  # nn.Module.forward is typed as a mutable Callable
+
 [dependency-groups]
 benchmark = [
     "pandas>=2.3.3",
@@ -56,7 +59,7 @@ benchmark = [
 dev = [
     "prek>=0.3.2",
     "pytest>=9.0.2",
-    "ty>=0.0.21",
+    "ty==0.0.87",
 ]
 docs = [
     "black>=26.1.0",
