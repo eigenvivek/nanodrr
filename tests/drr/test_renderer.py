@@ -193,3 +193,16 @@ def test_torch_backend_renders_reduced_precision_volumes(dtype, n_classes):
     expected = render(ref, k_inv, rt_inv, sdd, h, w, n_samples=64, backend="torch")
     out = render(low, k_inv, rt_inv, sdd, h, w, n_samples=64, backend="torch")
     torch.testing.assert_close(out, expected, rtol=1e-5, atol=1e-5 * expected.abs().max().item())
+
+
+def test_swapping_the_volume_invalidates_the_mu_cache(device):
+    subject, fresh = make_random_subject(seed=0).to(device), make_random_subject(seed=1).to(device)
+    subject.convert_to_mu = fresh.convert_to_mu = True
+    k_inv, rt_inv, sdd, h, w = make_camera(device)
+    render(subject, k_inv, rt_inv, sdd, h, w, n_samples=64)  # fills the cache
+
+    subject._image_hu = fresh._image_hu
+    torch.testing.assert_close(
+        render(subject, k_inv, rt_inv, sdd, h, w, n_samples=64),
+        render(fresh, k_inv, rt_inv, sdd, h, w, n_samples=64),
+    )
