@@ -1,21 +1,8 @@
-import functools
-
 import torch
 from jaxtyping import Float
 
 from ..data import Subject
-from .backends import fused_supported, render_fused, render_torch
-
-_FUSED_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
-
-
-@functools.cache
-def _triton_available() -> bool:
-    try:
-        from . import _fused  # noqa: F401
-    except Exception:
-        return False
-    return True
+from .backends import FUSED_BACKENDS, pick_fused_backend, render_fused, render_torch
 
 
 def render(
@@ -65,10 +52,12 @@ def render(
         tgt: Pre-computed ray target positions (detector pixel locations) in
             camera coordinates. If `None`, computed from `k_inv` and `rt_inv`.
         backend: `"torch"` uses the reference `grid_sample` implementation;
-            `"triton"` uses the fused Triton kernel; `"auto"` (default) picks
-            `"triton"` on CUDA with fp32/fp16/bf16 when eligible and `"torch"`
-            otherwise. The backends agree to float32 sampling precision (~1e-5)
-            and assume an affine `rt_inv`; `"triton"` has no double backward.
+            `"triton"` uses the fused Triton kernel;
+            `"metal"` uses the fused Metal shader (MPS); `"auto"` (default) picks
+            `"triton"` on CUDA or `"metal"` on MPS with fp32/fp16/bf16 when eligible
+            and `"torch"` otherwise. The backends agree to float32 sampling precision
+            (~1e-5) and assume an affine `rt_inv`; `"triton"` and `"metal"` have no
+            double backward.
 
     Returns:
         Rendered synthetic radiograph. Shape is `(B, C, H, W)` where `C` is
@@ -88,22 +77,15 @@ def render(
     # Compute step size [mm] in camera space (the backends rescale it when clipping rays to the volume)
     step_size = (tgt - src).norm(dim=-1) / float(n_samples)
 
-    soft_labels = soft_labels and subject.n_classes > 1
+    soft_labels = soft_labels and subject.n_classes > 1  # a single class has nothing to route
     if backend == "auto":
-        eligible = (
-            rt_inv.is_cuda
-            and dtype in _FUSED_DTYPES
-            and subject.image.dtype in _FUSED_DTYPES
-            and not (torch.are_deterministic_algorithms_enabled() and subject.image.requires_grad)  # gvol uses atomics
-            and fused_supported(subject, max(rt_inv.shape[0], tgt.shape[0]), height * width)
-            and _triton_available()
-        )
-        backend = "triton" if eligible else "torch"
-    if backend == "triton":
-        return render_fused(subject, rt_inv, src, tgt, step_size, n_samples, height, width, soft_labels)
+        backend = pick_fused_backend(subject, rt_inv, tgt, height, width) or "torch"
+    if backend in FUSED_BACKENDS:
+        return render_fused(backend, subject, rt_inv, src, tgt, step_size, n_samples, height, width, soft_labels)
     if backend == "torch":
         return render_torch(subject, rt_inv, src, tgt, step_size, n_samples, height, width, soft_labels)
-    raise ValueError(f"Unknown backend {backend!r}; expected 'auto', 'torch', or 'triton'")
+    expected = ", ".join(repr(name) for name in ("auto", "torch", *FUSED_BACKENDS))
+    raise ValueError(f"Unknown backend {backend!r}; expected one of {expected}")
 
 
 def _make_tgt(

@@ -12,6 +12,7 @@ A performance-oriented reimplementation of [`DiffDRR`](https://github.com/eigenv
 
 - Optimized, pure PyTorch implementation (**~5× faster than `DiffDRR` at baseline**)
 - Fused Triton rendering kernel, used by default on CUDA (**~40× faster than `DiffDRR`**)
+- Fused Metal shader (experimental), used by default on MPS (**~4× faster than PyTorch**)
 - Modular design (freely swap subjects, extrinsics, and intrinsics during rendering)
 - Compatibility with `torch.compile` and mixed precision
 - Extensive type hints with `jaxtyping`

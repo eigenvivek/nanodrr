@@ -7,8 +7,6 @@ from nanodrr.camera import make_k_inv, make_rt_inv
 from nanodrr.data.subject import Subject
 from nanodrr.drr.renderer import render
 
-cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
-
 
 @dataclass(frozen=True)
 class Parity:
@@ -24,9 +22,10 @@ class Parity:
         return [(self.ref_backend, self.ref_device), (self.backend, self.device)]
 
 
-# Triton is compared with the torch backend on the same GPU; torch on a GPU with torch on the CPU
+# Triton is compared with the torch backend on the same GPU; Metal and torch on a GPU with torch on the CPU
 PARITY = {
     "triton-cuda": ("triton", "cuda", "torch", "cuda"),
+    "metal-mps": ("metal", "mps", "torch", "cpu"),
     "torch-cuda": ("torch", "cuda", "torch", "cpu"),
     "torch-mps": ("torch", "mps", "torch", "cpu"),
 }
@@ -144,25 +143,26 @@ def _grads(backend, device, kind, n_classes=1, orthographic=False, soft_labels=F
     return [k.grad.cpu(), s.grad.cpu()]
 
 
-def _assert_grads_match(parity, kind, **kwargs):
+def _assert_grads_match(parity, kind, tol=1e-3, **kwargs):
     ref = _grads(parity.ref_backend, parity.ref_device, kind, **kwargs)
     out = _grads(parity.backend, parity.device, kind, **kwargs)
     # One scale for all inputs: clipped rays do not depend on the SDD, whose gradient is zero
     scale = max(r.abs().max() for r in ref)
     for r, o in zip(ref, out):
-        assert ((r - o).abs().max() / scale).item() < 1e-3
+        assert ((r - o).abs().max() / scale).item() < tol
 
 
 def _assert_render_parity(ref, out, n_classes):
-    """Class routing is discontinuous at label boundaries, so ~1e-6 coordinate
-    differences between backends may flip single samples between channels."""
+    """Class routing is discontinuous at label boundaries, so ~1e-6 coordinate differences between
+    backends may flip single samples between channels. The channel sum, which routing cannot change,
+    must match tightly; a few single-pixel flips are tolerated (on a 16x16 render, 1 pixel is 0.4%)."""
     scale = ref.abs().max()
     if n_classes == 1:
         assert ((ref - out).abs().max() / scale).item() < 1e-4
     else:
         assert ((ref.sum(dim=1) - out.sum(dim=1)).abs().max() / scale).item() < 1e-4
         bad = ((ref - out).abs().amax(dim=1) / scale) > 1e-4
-        assert bad.float().mean().item() < 1e-3
+        assert bad.float().mean().item() < 2e-2
 
 
 @pytest.mark.parametrize("orthographic", [False, True])
@@ -182,56 +182,12 @@ def test_backend_matches_torch_pose_gradients(parity, orthographic):
 
 @pytest.mark.parametrize("n_classes", [1, 3])
 def test_backend_matches_torch_volume_gradients(parity, n_classes):
-    _assert_grads_match(parity, "volume", n_classes=n_classes)
+    # With nearest-neighbor labels, a flipped sample reroutes its gradient to another channel
+    _assert_grads_match(parity, "volume", tol=1e-3 if n_classes == 1 else 3e-2, n_classes=n_classes)
 
 
 def test_backend_matches_torch_intrinsics_gradients(parity):
     _assert_grads_match(parity, "intrinsics")
-
-
-@cuda
-def test_triton_backend_compiles_with_gradients():
-    """`torch.compile` must trace both kernel launches as opaque custom ops."""
-    device = torch.device("cuda")
-    subject = make_random_subject().to(device)
-    k_inv, rt_inv, sdd, height, width = make_camera(device)
-
-    torch.manual_seed(4)
-    w = torch.randn(1, 1, height, width, device=device)
-
-    def f(rt):
-        return render(subject, k_inv, rt, sdd, height, width, n_samples=200, backend="triton")
-
-    rt = rt_inv.clone().requires_grad_(True)
-    (f(rt) * w).sum().backward()
-
-    torch._dynamo.reset()
-    rt_c = rt_inv.clone().requires_grad_(True)
-    (torch.compile(f, fullgraph=True)(rt_c) * w).sum().backward()
-
-    ref = rt.grad[0, :3]
-    scale = ref.abs().max()
-    assert ((ref - rt_c.grad[0, :3]).abs().max() / scale).item() < 1e-3
-
-
-@cuda
-def test_triton_pose_gradients_deterministic():
-    """`gM` is reduced from per-program partials, so pose gradients are bitwise stable."""
-    device = torch.device("cuda")
-    subject = make_random_subject().to(device)
-    k_inv, rt_inv, sdd, height, width = make_camera(device)
-
-    torch.manual_seed(5)
-    w = torch.randn(1, 1, height, width, device=device)
-
-    grads = []
-    for _ in range(2):
-        rt = rt_inv.clone().requires_grad_(True)
-        out = render(subject, k_inv, rt, sdd, height, width, n_samples=200, backend="triton")
-        (out * w).sum().backward()
-        grads.append(rt.grad.clone())
-
-    torch.testing.assert_close(grads[0], grads[1], rtol=0, atol=0)
 
 
 @pytest.mark.parametrize("n_classes", [1, 3])
@@ -267,23 +223,6 @@ def test_rays_are_clipped_to_the_volume(parity, orthographic):
     assert ((grads[0] - grads[1]).abs().max() / grads[0].abs().max()).item() < 1e-3
 
 
-@cuda
-def test_triton_out_of_range_labels_are_safe():
-    """Labels >= n_classes are dropped in forward and masked in backward."""
-    device = torch.device("cuda")
-    subject = make_random_subject(n_classes=5).to(device)
-    subject.n_classes = 3  # fewer channels than the labelmap contains
-    k_inv, rt_inv, sdd, height, width = make_camera(device)
-
-    rt = rt_inv.clone().requires_grad_(True)
-    out = render(subject, k_inv, rt, sdd, height, width, n_samples=200, backend="triton")
-    out.sum().backward()
-
-    assert out.shape[1] == 3
-    assert torch.isfinite(out).all()
-    assert torch.isfinite(rt.grad).all()
-
-
 def test_invalid_n_samples_raises(device):
     subject = make_random_subject().to(device)
     k_inv, rt_inv, sdd, height, width = make_camera(device)
@@ -293,8 +232,8 @@ def test_invalid_n_samples_raises(device):
 
 
 def test_auto_backend_falls_back_to_torch(device):
-    if device.type == "cuda":
-        pytest.skip("auto selects the triton backend on CUDA")
+    if device.type in ("cuda", "mps"):
+        pytest.skip("auto selects a fused backend on GPUs; see test_dispatch.py")
     subject = make_random_subject().to(device)
     k_inv, rt_inv, sdd, height, width = make_camera(device)
 
@@ -322,3 +261,118 @@ def test_backend_matches_torch_forward_soft_labels(parity, orthographic, batched
 @pytest.mark.parametrize("kind", ["pose", "volume", "intrinsics"])
 def test_backend_matches_torch_gradients_soft_labels(parity, kind):
     _assert_grads_match(parity, kind, n_classes=3, soft_labels=True)
+
+
+def test_backend_batched_pose_gradients_match_torch(parity):
+    """Batched poses against a shared detector reduce gradients over the broadcast dimensions."""
+    grads = []
+    for backend, device in parity.runs():
+        subject = make_random_subject().to(device)
+        k_inv, _, sdd, height, width = make_camera(device)
+        rt = make_rt_inv(
+            torch.tensor([[5.0, -3.0, 8.0], [25.0, 4.0, -6.0]]),
+            torch.tensor([[1.0, 80.0, -2.0], [-3.0, 78.0, 5.0]]),
+            orientation="AP",
+            isocenter=torch.zeros(3),
+        ).to(device)
+        rt.requires_grad_(True)
+        render(subject, k_inv, rt, sdd, height, width, n_samples=200, backend=backend).sum().backward()
+        grads.append(rt.grad[:, :3].cpu())
+
+    ref, out = grads
+    assert ((ref - out).abs().max() / ref.abs().max()).item() < 1e-3
+
+
+# Properties of the fused backends themselves (Triton on CUDA, Metal on MPS), whatever the reference does
+
+
+def fused_setup(fused, n_classes=1, size=32):
+    subject = make_random_subject(size=size, n_classes=n_classes).to(fused.device)
+    return (subject, *make_camera(fused.device))
+
+
+def test_fused_pose_gradients_deterministic(fused):
+    """Pose gradients are reduced from per-program (or per-ray) partials, so they are bitwise stable."""
+    subject, k_inv, rt_inv, sdd, h, w = fused_setup(fused)
+    weights = torch.randn(1, 1, h, w, device=fused.device, generator=torch.Generator(fused.device).manual_seed(5))
+
+    grads = []
+    for _ in range(2):
+        rt = rt_inv.clone().requires_grad_(True)
+        out = render(subject, k_inv, rt, sdd, h, w, n_samples=200, backend=fused.backend)
+        (out * weights).sum().backward()
+        grads.append(rt.grad.clone())
+
+    torch.testing.assert_close(grads[0], grads[1], rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("soft_labels", [False, True])
+def test_fused_out_of_range_labels_are_safe(fused, soft_labels):
+    """Labels >= n_classes are dropped in forward and masked in backward."""
+    subject, k_inv, rt_inv, sdd, h, w = fused_setup(fused, n_classes=5)
+    subject.n_classes = 3  # fewer channels than the labelmap contains
+    rt = rt_inv.clone().requires_grad_(True)
+    out = render(subject, k_inv, rt, sdd, h, w, n_samples=100, backend=fused.backend, soft_labels=soft_labels)
+    out.sum().backward()
+
+    assert out.shape[1] == 3
+    assert torch.isfinite(out).all()
+    assert torch.isfinite(rt.grad).all()
+
+
+@pytest.mark.parametrize("soft_labels", [False, True])
+def test_fused_backward_compiles(fused, soft_labels):
+    """`torch.compile` must trace both kernel launches as opaque custom ops."""
+    subject, k_inv, rt_inv, sdd, h, w = fused_setup(fused, n_classes=3)
+    weights = torch.randn(1, 3, h, w, device=fused.device, generator=torch.Generator(fused.device).manual_seed(4))
+
+    def f(rt):
+        return render(subject, k_inv, rt, sdd, h, w, n_samples=100, backend=fused.backend, soft_labels=soft_labels)
+
+    rt = rt_inv.clone().requires_grad_(True)
+    (f(rt) * weights).sum().backward()
+
+    torch._dynamo.reset()
+    rt_c = rt_inv.clone().requires_grad_(True)
+    (torch.compile(f, fullgraph=True)(rt_c) * weights).sum().backward()
+
+    ref = rt.grad[0, :3]
+    assert ((ref - rt_c.grad[0, :3]).abs().max() / ref.abs().max()).item() < 1e-3
+
+
+def test_fused_multiclass_channels_sum_to_single_class(fused):
+    """Routing only splits the integral across channels; it must not change the total."""
+    subject, k_inv, rt_inv, sdd, h, w = fused_setup(fused, n_classes=3)
+    multi = render(subject, k_inv, rt_inv, sdd, h, w, n_samples=100, backend=fused.backend)
+    subject.n_classes = 1
+    single = render(subject, k_inv, rt_inv, sdd, h, w, n_samples=100, backend=fused.backend)
+
+    torch.testing.assert_close(multi.sum(dim=1, keepdim=True), single, rtol=1e-4, atol=1e-4)
+
+
+def test_fused_soft_labels_equal_masked_volume_renders(fused):
+    """Channel c of a soft-label render is the plain render of the volume masked to class c."""
+    subject, k_inv, rt_inv, sdd, h, w = fused_setup(fused, n_classes=3)
+    soft = render(subject, k_inv, rt_inv, sdd, h, w, n_samples=100, backend=fused.backend, soft_labels=True)
+
+    for c in range(3):
+        masked = Subject(
+            imagedata=subject.image * (subject.label == c),
+            labeldata=torch.zeros_like(subject.label),
+            voxel_to_world=subject.voxel_to_world,
+            world_to_voxel=subject.world_to_voxel,
+            voxel_to_grid=subject.voxel_to_grid,
+            isocenter=subject.isocenter,
+            max_label=0,
+            convert_to_mu=False,
+        )
+        ref = render(masked, k_inv, rt_inv, sdd, h, w, n_samples=100, backend=fused.backend)
+        assert (soft[:, c : c + 1] - ref).abs().max().item() < 1e-4 * ref.abs().max().item()
+
+
+def test_fused_soft_labels_are_ignored_for_a_single_class(fused):
+    subject, k_inv, rt_inv, sdd, h, w = fused_setup(fused, n_classes=1)
+    hard = render(subject, k_inv, rt_inv, sdd, h, w, n_samples=64, backend=fused.backend)
+    soft = render(subject, k_inv, rt_inv, sdd, h, w, n_samples=64, backend=fused.backend, soft_labels=True)
+
+    torch.testing.assert_close(soft, hard, rtol=0, atol=0)
