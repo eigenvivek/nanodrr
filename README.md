@@ -22,8 +22,6 @@ All projective geometry is implemented internally using the standard [Hartley an
 > [!NOTE]
 >
 > MPS-accelerated differentiable rendering requires `pytorch>=2.13`, which is the first release with native MPS kernels for `grid_sample` backwards and 3D nearest-neighbor sampling.
->
-> The fused Metal shader (`backend="metal"`, picked automatically on MPS) is compiled at runtime with `torch.mps.compile_shader`; where that is unavailable, or the inputs are ineligible (e.g. deterministic algorithms with volume gradients), rendering falls back to the PyTorch path. Like the Triton kernel, it has no double backward.
 
 To strictly install the renderer:
 ```
