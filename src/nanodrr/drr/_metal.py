@@ -1,21 +1,21 @@
 """Fused Metal ray-marching kernels, compiled at runtime with `torch.mps.compile_shader`.
 
 One thread marches one ray, so the sample grid and per-sample intensities of the `grid_sample` path are
-never materialized. The semantics are those of the Triton kernel (see `_triton.py`): rays are clipped to
+never materialized. The semantics are those of the Triton kernel (see `_fused.py`): rays are clipped to
 the volume and sampled at midpoints, with trilinear intensities (zero padded), nearest or per-neighbor
 (soft) label routing, and analytic gradients for the camera-to-voxel transform, the ray endpoints, the
 step size and the volume. The volume and labelmap may be float32, float16 or bfloat16; they are read in
-place and promoted per sample, while geometry and accumulation stay float32.
+place and promoted per sample, while geometry and accumulation stay float32. The labelmap is read in the
+volume's dtype or in float32, so neither the float32 labelmap of `Subject` nor a `Subject.half()` is copied.
 
-The kernels are written once and instantiated per volume dtype (`raymarch_fwd_f16`, ...).
+The kernels are written once and instantiated per (volume, labelmap) dtype pair (`raymarch_fwd_f16_f32`, ...).
 """
 
 import functools
-import platform
 
 import torch
 
-from ._fused import FusedBackend, register_fused_op, src_strides
+from .backends import register_fused_op
 
 _HEADER = """
 #include <metal_stdlib>
@@ -110,7 +110,7 @@ _KERNELS = """
 // The argument order must match `_forward` below
 kernel void raymarch_fwd(
     device const VT* vol     [[buffer(0)]],
-    device const VT* lab     [[buffer(1)]],
+    device const LT* lab     [[buffer(1)]],
     device const float* M    [[buffer(2)]],   // [B, 3, 4] camera -> voxel pixel coords
     device const float* src  [[buffer(3)]],   // [B, N or 1, 3]
     device const float* tgt  [[buffer(4)]],   // [B, N, 3]
@@ -168,12 +168,12 @@ kernel void raymarch_fwd(
 kernel void raymarch_bwd(
     device const float* go   [[buffer(0)]],   // [B, C, N]
     device const VT* vol     [[buffer(1)]],
-    device const VT* lab     [[buffer(2)]],
+    device const LT* lab     [[buffer(2)]],
     device const float* M    [[buffer(3)]],
     device const float* src  [[buffer(4)]],
     device const float* tgt  [[buffer(5)]],
     device const float* stp  [[buffer(6)]],
-    device float* gM         [[buffer(7)]],   // [B*N, 12] per-ray partials, reduced in torch
+    device float* gM         [[buffer(7)]],   // [B*Np/w, 12] per-simdgroup partials, reduced in torch
     device float* gsrc       [[buffer(8)]],   // [B*N, 3]
     device float* gtgt       [[buffer(9)]],   // [B*N, 3]
     device float* gstep      [[buffer(10)]],  // [B*N]
@@ -189,11 +189,19 @@ kernel void raymarch_bwd(
     constant int& need_gvol  [[buffer(20)]],
     constant int& need_gcam  [[buffer(21)]],
     constant int& soft       [[buffer(22)]],
-    uint tid [[thread_position_in_grid]])
+    constant int& Np         [[buffer(23)]],   // N padded to a multiple of the simdgroup width w
+    uint tid [[thread_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]],
+    uint w [[threads_per_simdgroup]])
 {
-    int gid = (int)tid;
-    int b = gid / N, n = gid - b * N;
+    // The grid is [B, Np], so no simdgroup straddles two poses. Padding threads march a real ray
+    // with `hit` cleared: they contribute zeros but take part in the simdgroup reduction of gM
+    int b = (int)tid / Np, n = (int)tid - b * Np;
+    bool active = n < N;
+    n = min(n, N - 1);
+    int gid = b * N + n;
     Ray r = setup_ray(M, src, tgt, gid, b, n, D, H, W, src_ray_stride, src_batch_stride);
+    r.hit = r.hit && active;
     device const float* m = M + b * 12;
     float3 m0 = float3(m[0], m[1], m[2]), m1 = float3(m[4], m[5], m[6]), m2 = float3(m[8], m[9], m[10]);
 
@@ -299,11 +307,15 @@ kernel void raymarch_bwd(
         }
     }
 
-    device float* gm = gM + (long)gid * 12;
-    gm[0] = aM0.x; gm[1] = aM0.y; gm[2] = aM0.z; gm[3] = aT.x;
-    gm[4] = aM1.x; gm[5] = aM1.y; gm[6] = aM1.z; gm[7] = aT.y;
-    gm[8] = aM2.x; gm[9] = aM2.y; gm[10] = aM2.z; gm[11] = aT.z;
-    if (need_gcam) {
+    // Every lane reaches this point (no early returns), so the simdgroup sums are over all w rays
+    aM0 = simd_sum(aM0); aM1 = simd_sum(aM1); aM2 = simd_sum(aM2); aT = simd_sum(aT);
+    if (lane == 0) {
+        device float* gm = gM + (long)(tid / w) * 12;
+        gm[0] = aM0.x; gm[1] = aM0.y; gm[2] = aM0.z; gm[3] = aT.x;
+        gm[4] = aM1.x; gm[5] = aM1.y; gm[6] = aM1.z; gm[7] = aT.y;
+        gm[8] = aM2.x; gm[9] = aM2.y; gm[10] = aM2.z; gm[11] = aT.z;
+    }
+    if (active && need_gcam) {
         gsrc[gid * 3] = gs.x; gsrc[gid * 3 + 1] = gs.y; gsrc[gid * 3 + 2] = gs.z;
         gtgt[gid * 3] = gt.x; gtgt[gid * 3 + 1] = gt.y; gtgt[gid * 3 + 2] = gt.z;
         gstep[gid] = gst;
@@ -315,122 +327,102 @@ kernel void raymarch_bwd(
 _DTYPES = {torch.float32: ("float", "f32"), torch.float16: ("half", "f16"), torch.bfloat16: ("bfloat", "bf16")}
 
 
-def _build_source(dtypes) -> str:
-    """The shared helpers plus one copy of the kernels per volume dtype (`raymarch_fwd_f16`, ...)."""
+def _src_strides(src: torch.Tensor) -> tuple[int, int]:
+    """`(ray, batch)` strides of the ray sources `[B, N, 3]` or `[B, 1, 3]` (a broadcast source has ray stride 0)."""
+    return (0 if src.shape[1] == 1 else 3), src.shape[1] * 3
+
+
+def _label_dtypes(vol_dtype: torch.dtype) -> tuple[torch.dtype, ...]:
+    """Labelmap dtypes the kernels read for a volume of `vol_dtype`: the volume's own, or float32."""
+    return tuple(dict.fromkeys((vol_dtype, torch.float32)))
+
+
+def _build_source() -> str:
+    """The shared helpers plus one copy of the kernels per (volume, labelmap) dtype pair (`raymarch_fwd_f16_f32`, ...)."""
     out = [_HEADER]
-    for ctype, suffix in (_DTYPES[dt] for dt in dtypes):
-        body = _KERNELS.replace("raymarch_fwd", f"raymarch_fwd_{suffix}").replace(
-            "raymarch_bwd", f"raymarch_bwd_{suffix}"
-        )
-        out.append(f"#define VT {ctype}\n{body}\n#undef VT\n")
+    for vt in _DTYPES:
+        for lt in _label_dtypes(vt):
+            suffix = f"{_DTYPES[vt][1]}_{_DTYPES[lt][1]}"
+            body = _KERNELS.replace("raymarch_fwd", f"raymarch_fwd_{suffix}").replace(
+                "raymarch_bwd", f"raymarch_bwd_{suffix}"
+            )
+            out.append(f"#define VT {_DTYPES[vt][0]}\n#define LT {_DTYPES[lt][0]}\n{body}\n#undef VT\n#undef LT\n")
     return "\n".join(out)
-
-
-def _expected_dtypes() -> tuple[torch.dtype, ...]:
-    """Volume dtypes the kernels are expected to build for, from facts that need no compilation.
-
-    bfloat16 needs the Metal 3.1 language version (macOS 14). This is a constant, read once at import,
-    so that `supports` can be evaluated inside `torch.compile`: dynamo cannot trace `compile_shader`,
-    nor a cached wrapper around it.
-    """
-    if not (torch.backends.mps.is_available() and hasattr(torch.mps, "compile_shader")):
-        return ()
-    try:
-        major = int(platform.mac_ver()[0].split(".")[0])
-    except ValueError:
-        major = 0
-    return (torch.float32, torch.float16, torch.bfloat16) if major >= 14 else (torch.float32, torch.float16)
-
-
-_SUPPORTED = _expected_dtypes()
 
 
 @functools.cache
 def _compiled():
-    """`(library, built dtypes)`, compiled on first use by an eager kernel launch (never while tracing).
+    """The shader library, compiled on first use by an eager kernel launch (never while tracing).
 
-    If the OS rejects the bfloat16 kernels despite the version check, float32 and float16 still build."""
-    if not _SUPPORTED:
-        raise RuntimeError("the metal backend needs an MPS device and torch.mps.compile_shader")
-    candidates = [list(_SUPPORTED)]
-    if torch.bfloat16 in _SUPPORTED:
-        candidates.append([dt for dt in _SUPPORTED if dt != torch.bfloat16])
-    error = None
-    for dtypes in candidates:
-        try:
-            return torch.mps.compile_shader(_build_source(dtypes)), tuple(dtypes)
-        except Exception as e:  # noqa: BLE001  # shader compile errors surface as RuntimeError
-            error = e
-    raise RuntimeError(f"Metal shader compilation failed: {error}")
+    bfloat16 needs Metal 3.1 (macOS 14), which every torch build with MPS support for this package has."""
+    return torch.mps.compile_shader(_build_source())
 
 
-def supports(dtype: torch.dtype) -> bool:
-    """Whether the fused kernels are expected to run on this machine for a volume of `dtype`.
+def _as_label(vol: torch.Tensor, lab: torch.Tensor) -> torch.Tensor:
+    """The labelmap in a dtype the kernels read: as stored if that is the volume's dtype or float32
+    (no copy), else float32, which holds integer labels exactly up to 2**24."""
+    return lab if lab.dtype in _label_dtypes(vol.dtype) else lab.float().contiguous()
 
-    A constant lookup, safe under `torch.compile`; a kernel launch raises if a build still fails."""
-    return dtype in _SUPPORTED
 
-
-def _kernel(name: str, vol: torch.Tensor):
-    """The `name` kernel instantiated for the volume's dtype."""
-    library, built = _compiled()
-    if vol.dtype not in built:
-        raise TypeError(f"metal backend does not support {vol.dtype} volumes on this machine")
-    return getattr(library, f"{name}_{_DTYPES[vol.dtype][1]}")
+def _kernel(name: str, vol: torch.Tensor, lab: torch.Tensor):
+    """The `name` kernel instantiated for the volume's and labelmap's dtypes."""
+    return getattr(_compiled(), f"{name}_{_DTYPES[vol.dtype][1]}_{_DTYPES[lab.dtype][1]}")
 
 
 def _forward(vol, lab, M, src, tgt, step, n_samples, n_classes, width, soft_labels):
     """Forward launch of the fused kernel: the float32 render `[B, C, N]`.
 
-    `vol`/`lab` may be float32, float16 or bfloat16 (the same dtype), geometry is float32.
+    `vol` may be float32, float16 or bfloat16, `lab` any dtype (see `_as_label`), geometry is float32.
     `width` is unused: one thread marches one ray, in linear order.
     """
     B, N, _ = tgt.shape
     D, H, W = vol.shape
+    lab = _as_label(vol, lab)
     out = torch.zeros(B, n_classes, N, device=vol.device, dtype=torch.float32)
-    _kernel("raymarch_fwd", vol)(
+    _kernel("raymarch_fwd", vol, lab)(
         vol, lab, M, src, tgt, step, out,
-        N, D, H, W, n_samples, n_classes, *src_strides(src), int(soft_labels),
+        N, D, H, W, n_samples, n_classes, *_src_strides(src), int(soft_labels),
         threads=B * N,
     )  # fmt: skip
     return out
 
 
 def _backward(go, vol, lab, M, src, tgt, step, n_samples, n_classes, width, need_gvol, need_gcam, soft_labels):
-    """Backward launch of the fused kernel: `(gvol, gM, gsrc, gtgt, gstep)`, unrequested ones empty."""
+    """Backward launch of the fused kernel: `(gvol, gM, gsrc, gtgt, gstep)`, unrequested ones empty.
+
+    The pose gradient is summed per simdgroup in the kernel and over simdgroups here, so its scratch is
+    `B * N / w` rows rather than one per ray, and the result is deterministic.
+    """
     B, N, _ = tgt.shape
     D, H, W = vol.shape
     dev, f32 = vol.device, torch.float32
-    gM_part = torch.empty(B * N, 12, device=dev, dtype=f32)
-    gvol = torch.zeros(D, H, W, device=dev, dtype=f32) if need_gvol else gM_part.new_empty(1)
-    gsrc = torch.empty(B * N, 3, device=dev, dtype=f32) if need_gcam else gM_part.new_empty(1)
-    gtgt = torch.empty(B * N, 3, device=dev, dtype=f32) if need_gcam else gM_part.new_empty(1)
-    gstep = torch.empty(B * N, device=dev, dtype=f32) if need_gcam else gM_part.new_empty(1)
+    lab = _as_label(vol, lab)
+    kernel = _kernel("raymarch_bwd", vol, lab)
 
-    _kernel("raymarch_bwd", vol)(
+    # Each pose's rays fill whole simdgroups (padded to Np), and threadgroups hold whole simdgroups
+    w = kernel.thread_execution_width
+    Np = -(-N // w) * w
+    group_size = kernel.max_threads_per_threadgroup // w * w
+
+    gM_part = torch.empty(B * Np // w, 12, device=dev, dtype=f32)
+    unused = gM_part.new_empty(1)  # bound to the buffers of unrequested gradients, never written
+    gvol = torch.zeros(D, H, W, device=dev, dtype=f32) if need_gvol else unused
+    gsrc = torch.empty(B, N, 3, device=dev, dtype=f32) if need_gcam else unused
+    gtgt = torch.empty(B, N, 3, device=dev, dtype=f32) if need_gcam else unused
+    gstep = torch.empty(B, N, device=dev, dtype=f32) if need_gcam else unused
+
+    kernel(
         go.float().contiguous(), vol, lab, M, src, tgt, step,
         gM_part, gsrc, gtgt, gstep, gvol,
-        N, D, H, W, n_samples, n_classes, *src_strides(src), int(need_gvol), int(need_gcam), int(soft_labels),
-        threads=B * N,
+        N, D, H, W, n_samples, n_classes, *_src_strides(src), int(need_gvol), int(need_gcam), int(soft_labels), Np,
+        threads=B * Np, group_size=group_size,
     )  # fmt: skip
-    # Per-ray partials are reduced here, so the pose gradient is deterministic
-    gM = gM_part.view(B, N, 12).sum(dim=1).view(B, 3, 4)
+    gM = gM_part.view(B, Np // w, 12).sum(dim=1).view(B, 3, 4)
     if not need_gvol:
-        gvol = gvol.new_empty(0)
-    if need_gcam:
-        gsrc, gtgt, gstep = gsrc.view(B, N, 3), gtgt.view(B, N, 3), gstep.view(B, N)
-    else:
-        gsrc, gtgt, gstep = (gvol.new_empty(0) for _ in range(3))
+        gvol = gM.new_empty(0)
+    if not need_gcam:
+        gsrc, gtgt, gstep = (gM.new_empty(0) for _ in range(3))  # distinct: a custom op's outputs must not alias
     return gvol, gM, gsrc, gtgt, gstep
 
 
-BACKEND = register_fused_op(
-    FusedBackend(
-        name="metal",
-        op_name="metal_raymarch",
-        forward=_forward,
-        backward=_backward,
-        supports=supports,
-        matching_label_dtype=True,
-    )
-)
+metal_raymarch = register_fused_op("metal", "metal_raymarch", _forward, _backward)

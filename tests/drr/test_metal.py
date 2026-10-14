@@ -1,6 +1,7 @@
-"""Metal-specific behavior: reduced-precision volumes, the bfloat16 build fallback and the kernel's
-argument layout. Everything that holds for every fused backend (parity with torch, gradients, soft labels,
-clipping, `torch.compile`, `auto` dispatch) is in `test_fused.py` and `test_dispatch.py`."""
+"""Metal-specific behavior: reduced-precision volumes and labelmaps, the simdgroup reduction of the pose
+gradient and the kernel's argument layout. Everything that holds for every fused backend (parity with
+torch, gradients, soft labels, clipping, `torch.compile`, `auto` dispatch) is in `test_fused.py` and
+`test_dispatch.py`."""
 
 import re
 
@@ -8,7 +9,9 @@ import pytest
 import torch
 from test_fused import make_camera, make_random_subject
 
+from nanodrr.camera import make_rt_inv
 from nanodrr.drr import _metal
+from nanodrr.drr.backends import pick_fused_backend
 from nanodrr.drr.renderer import render
 
 pytestmark = pytest.mark.skipif(not torch.backends.mps.is_available(), reason="requires MPS")
@@ -93,14 +96,6 @@ def test_metal_pose_gradient_with_reduced_precision_volume(dtype):
     assert ((grads[0] - grads[1]).abs().max() / grads[0].abs().max()).item() < 2e-2
 
 
-def test_auto_backend_falls_back_to_torch_when_metal_lacks_dtype(monkeypatch):
-    monkeypatch.setattr("nanodrr.drr._metal._SUPPORTED", ())
-    subject, k_inv, rt_inv, sdd, h, w = _setup()
-    auto = render(subject, k_inv, rt_inv, sdd, h, w, n_samples=64, backend="auto")
-    ref = render(subject, k_inv, rt_inv, sdd, h, w, n_samples=64, backend="torch")
-    torch.testing.assert_close(auto, ref, rtol=0, atol=0)
-
-
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 def test_metal_soft_labels_reduced_precision_volume(dtype):
     device = torch.device("mps")
@@ -113,40 +108,21 @@ def test_metal_soft_labels_reduced_precision_volume(dtype):
     assert ((expected - out.float()).abs().max() / expected.abs().max()).item() < tol
 
 
-def test_metal_bfloat16_build_failure_keeps_float32_and_float16(monkeypatch):
-    """If the OS rejects the bfloat16 kernels despite the version check, the others must still build."""
-    from nanodrr.drr import _metal
-
-    real = torch.mps.compile_shader
-
-    def reject_bfloat16(source):
-        if "bfloat" in source:
-            raise RuntimeError("bfloat is not supported by this Metal language version")
-        return real(source)
-
-    monkeypatch.setattr(torch.mps, "compile_shader", reject_bfloat16)
-    _metal._compiled.cache_clear()
-    try:
-        _, built = _metal._compiled()
-        assert built == (torch.float32, torch.float16)
-
-        with pytest.raises(TypeError, match="bfloat16"):
-            _metal._kernel("raymarch_fwd", torch.zeros(1, 1, 1, dtype=torch.bfloat16, device="mps"))
-
-        subject, k_inv, rt_inv, sdd, h, w = _setup()
-        out = render(subject.half(), k_inv, rt_inv, sdd, h, w, n_samples=64, backend="metal")
-        assert torch.isfinite(out).all()
-    finally:
-        monkeypatch.undo()
-        _metal._compiled.cache_clear()  # later tests get the real library back
-
-
 def test_kernel_argument_layout_matches_the_launches(monkeypatch):
     """The MSL `[[buffer(i)]]` indices must be 0..n-1 and as many as the Python launch passes."""
     launched = {}
 
-    def fake_kernel(name, vol):
-        return lambda *args, threads: launched.setdefault(name, len(args))
+    class FakeKernel:
+        thread_execution_width, max_threads_per_threadgroup = 32, 1024
+
+        def __init__(self, name):
+            self.name = name
+
+        def __call__(self, *args, threads, group_size=None):
+            launched.setdefault(self.name, len(args))
+
+    def fake_kernel(name, vol, lab):
+        return FakeKernel(name)
 
     monkeypatch.setattr(_metal, "_kernel", fake_kernel)
     dev = torch.device("mps")
@@ -162,11 +138,54 @@ def test_kernel_argument_layout_matches_the_launches(monkeypatch):
         assert launched[name] == len(indices)
 
 
-def test_bfloat16_volume_rejects_class_labels_it_cannot_store():
-    """Labels are stored in the volume's dtype, and bfloat16 integers are exact only up to 256."""
+def test_bfloat16_volume_keeps_float32_labels_beyond_its_integer_range():
+    """bfloat16 integers are exact only up to 256, so float32 labels are read as float32, not converted.
+    `auto` must pick metal for such a subject, and label 299 must collect exactly what label 2 did."""
     subject, k_inv, rt_inv, sdd, h, w = _setup(n_classes=3)
     subject._image_hu = subject._image_hu.bfloat16()
-    subject.n_classes = 300
+    subject.label = subject.label.float()
+    three = render(subject, k_inv, rt_inv, sdd, h, w, n_samples=64, backend="metal")
 
-    with pytest.raises(ValueError, match="not exact"):
-        render(subject, k_inv, rt_inv, sdd, h, w, n_samples=16, backend="metal")
+    subject.label[subject.label == 2] = 299
+    subject.n_classes = 300
+    assert pick_fused_backend(subject, rt_inv, rt_inv.new_zeros(1, h * w, 3), h, w) == "metal"
+    out = render(subject, k_inv, rt_inv, sdd, h, w, n_samples=64, backend="auto")
+
+    assert three[:, 2].abs().max() > 0
+    torch.testing.assert_close(out[:, [0, 1, 299]], three, rtol=0, atol=0)
+    assert out[:, 2:299].abs().max() == 0
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_metal_float32_labels_match_labels_in_the_volume_dtype(dtype):
+    """A reduced-precision volume reads float32 labels (the `Subject` default) as is, with the same result
+    as labels stored in the volume's dtype (`Subject.half()`)."""
+    _, low = _reduced(3, dtype, torch.device("mps"))
+    k_inv, rt_inv, sdd, h, w = make_camera(torch.device("mps"))
+    same = render(low, k_inv, rt_inv, sdd, h, w, n_samples=64, backend="metal")
+    low.label = low.label.float()
+    f32 = render(low, k_inv, rt_inv, sdd, h, w, n_samples=64, backend="metal")
+    torch.testing.assert_close(same, f32, rtol=0, atol=0)
+
+
+def test_metal_pose_gradient_with_rays_that_do_not_fill_simdgroups():
+    """The pose gradient is summed per simdgroup over a padded [B, Np] grid. With N = 15 * 13 rays per
+    pose (not a multiple of the simdgroup width) and two poses, padding lanes must add nothing and no
+    simdgroup may mix the poses."""
+    device = torch.device("mps")
+    grads = []
+    for backend in ("torch", "metal"):
+        subject = make_random_subject().to(device)
+        k_inv, _, sdd, h, w = make_camera(device, height=15, width=13)
+        rt = make_rt_inv(
+            torch.tensor([[5.0, -3.0, 8.0], [25.0, 4.0, -6.0]]),
+            torch.tensor([[1.0, 80.0, -2.0], [-3.0, 78.0, 5.0]]),
+            orientation="AP",
+            isocenter=torch.zeros(3),
+        ).to(device)
+        rt.requires_grad_(True)
+        render(subject, k_inv, rt, sdd, h, w, n_samples=200, backend=backend).sum().backward()
+        grads.append(rt.grad[:, :3].cpu())
+
+    ref, out = grads
+    assert ((ref - out).abs().max() / ref.abs().max()).item() < 1e-3

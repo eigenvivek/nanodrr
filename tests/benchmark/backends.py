@@ -18,14 +18,14 @@ from benchmark import PeakMemory, available_devices, device_name, setup_data, sy
 
 from nanodrr.camera import make_k_inv
 from nanodrr.drr import render
-from nanodrr.drr._fused import DEVICE_BACKENDS, available
+from nanodrr.drr.backends import DEVICE_BACKENDS, available
 
 
 def available_backends(device: str) -> list[str]:
     """Backends runnable on `device`: torch everywhere, plus the fused kernel for that GPU."""
     backends = ["torch"]
     fused = DEVICE_BACKENDS.get(device)
-    if fused and available(fused, torch.float32):
+    if fused and available(fused):
         backends.append(fused)
     return backends
 

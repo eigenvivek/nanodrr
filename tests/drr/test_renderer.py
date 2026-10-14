@@ -1,6 +1,7 @@
 import pytest
 import torch
 from pytest import approx
+from test_fused import make_camera, make_random_subject
 
 from nanodrr.data.subject import Subject
 from nanodrr.drr.renderer import render
@@ -175,3 +176,20 @@ def test_soft_labels_volume_gradients_match_nearest_channel_sum(device):
         out.sum().backward()
         grads.append(subject._image_hu.grad)
     assert ((grads[0] - grads[1]).abs().max() / grads[1].abs().max()).item() < 1e-4
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("n_classes", [1, 3])
+def test_torch_backend_renders_reduced_precision_volumes(dtype, n_classes):
+    """The torch path is the fallback of every fused backend, so it must render a half-precision volume
+    against float32 geometry: identical to the float32 volume holding the same (quantized) values."""
+    ref = make_random_subject(n_classes=n_classes)
+    ref._image_hu = ref._image_hu.to(dtype).float()
+    low = make_random_subject(n_classes=n_classes)
+    low._image_hu = ref._image_hu.to(dtype)
+    low.label = low.label.to(dtype)
+    k_inv, rt_inv, sdd, h, w = make_camera(torch.device("cpu"))
+
+    expected = render(ref, k_inv, rt_inv, sdd, h, w, n_samples=64, backend="torch")
+    out = render(low, k_inv, rt_inv, sdd, h, w, n_samples=64, backend="torch")
+    torch.testing.assert_close(out, expected, rtol=1e-5, atol=1e-5 * expected.abs().max().item())

@@ -4,7 +4,7 @@ import pytest
 import torch
 from test_fused import fused_setup, make_camera, make_random_subject
 
-from nanodrr.drr._fused import load_backend, pick_fused_backend
+from nanodrr.drr.backends import pick_fused_backend
 from nanodrr.drr.renderer import render
 
 
@@ -46,8 +46,7 @@ def test_auto_compiles_with_gradients(fused):
     out = torch.compile(f, backend=capture, fullgraph=True)(rt_c)
     (out * weights).sum().backward()
 
-    op_name = load_backend(fused.backend).op_name
-    assert any(op_name in str(node.target) for node in graphs[0].graph.nodes)  # auto chose the fused backend
+    assert any("nanodrr" in str(node.target) for node in graphs[0].graph.nodes)  # auto chose the fused backend
     torch.testing.assert_close(out, f(rt_inv), rtol=1e-5, atol=1e-6)
     ref = rt.grad[0, :3]
     assert ((ref - rt_c.grad[0, :3]).abs().max() / ref.abs().max()).item() < 1e-3
@@ -76,17 +75,17 @@ def test_auto_falls_back_to_torch_for_deterministic_volume_gradients(fused):
 
 
 def test_auto_falls_back_to_torch_when_inputs_exceed_limits(fused, monkeypatch):
-    monkeypatch.setattr("nanodrr.drr._fused.fused_supported", lambda *args: False)
+    monkeypatch.setattr("nanodrr.drr.backends.fused_supported", lambda *args: False)
     _auto_matches_torch(fused)
 
 
 def test_auto_falls_back_to_torch_when_the_backend_is_unavailable(fused, monkeypatch):
-    monkeypatch.setattr("nanodrr.drr._fused.available", lambda *args: False)
+    monkeypatch.setattr("nanodrr.drr.backends.available", lambda *args: False)
     _auto_matches_torch(fused)
 
 
 def test_explicit_backend_rejects_oversized_inputs(fused, monkeypatch):
-    monkeypatch.setattr("nanodrr.drr._fused.fused_supported", lambda *args: False)
+    monkeypatch.setattr("nanodrr.drr.backends.fused_supported", lambda *args: False)
     subject, k_inv, rt_inv, sdd, h, w = fused_setup(fused)
 
     with pytest.raises(ValueError, match="limits"):

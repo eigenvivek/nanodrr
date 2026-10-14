@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import pytest
 import torch
 
-from nanodrr.drr._fused import DEVICE_BACKENDS, available
+from nanodrr.drr.backends import DEVICE_BACKENDS, available
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,6 @@ def fused(request) -> Fused:
         pytest.skip("requires CUDA")
     if device == "mps" and not torch.backends.mps.is_available():
         pytest.skip("requires MPS")
-    if not available(backend, torch.float32):
+    if not available(backend):
         pytest.skip(f"the {backend} backend is unavailable")
     return Fused(backend, torch.device(device))
