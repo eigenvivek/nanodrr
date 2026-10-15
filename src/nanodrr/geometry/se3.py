@@ -1,7 +1,7 @@
 from enum import Enum
 
-import torch
 import roma
+import torch
 from jaxtyping import Float
 
 

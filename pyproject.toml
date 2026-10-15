@@ -40,6 +40,7 @@ filterwarnings = [
 line-length = 120
 
 [tool.ruff.lint]
+extend-select = ["I"]
 ignore = [
     "F722",  # Forward annotation false positive from jaxtyping
     "F821",  # Forward annotation false positive from jaxtyping
