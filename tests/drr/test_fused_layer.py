@@ -1,4 +1,4 @@
-"""The shared layer of the fused backends (in `backends.py`), on the CPU with a pure-torch reference backend.
+"""The shared layer of the fused backends (in `_fused.py`), on the CPU with a pure-torch reference backend.
 
 The Triton and Metal kernels need a GPU, but everything around them — the differentiable ops, their
 fakes, the autograd wiring and the broadcast reductions — is common code. This file exercises it
@@ -9,7 +9,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from nanodrr.drr.backends import register_fused_op
+from nanodrr.drr._fused import register_fused_op
 
 B, N, S, D, H, W = 2, 6, 8, 5, 6, 7
 

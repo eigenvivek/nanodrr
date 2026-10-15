@@ -3,7 +3,7 @@ from jaxtyping import Float
 
 from ..data import Subject
 from ._torch import render_torch
-from .backends import FUSED_BACKENDS, pick_fused_backend, render_fused
+from ._fused import FUSED_BACKENDS, pick_fused_backend, render_fused
 
 
 def render(

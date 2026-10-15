@@ -2,7 +2,7 @@ import torch
 import triton
 import triton.language as tl
 
-from .backends import register_fused_op
+from ._fused import register_fused_op
 
 _BLOCK = 128
 _WARPS = 4

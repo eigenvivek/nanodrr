@@ -18,7 +18,7 @@ from benchmark import PeakMemory, available_devices, device_name, setup_data, sy
 
 from nanodrr.camera import make_k_inv
 from nanodrr.drr import render
-from nanodrr.drr.backends import DEVICE_BACKENDS, available
+from nanodrr.drr._fused import DEVICE_BACKENDS, available
 
 
 def available_backends(device: str) -> list[str]:
