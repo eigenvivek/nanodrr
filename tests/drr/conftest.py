@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import pytest
 import torch
 
-from nanodrr.drr.backends import DEVICE_BACKENDS, available
+from nanodrr.drr._fused import DEVICE_BACKENDS, available
 
 
 @dataclass(frozen=True)

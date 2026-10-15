@@ -15,7 +15,7 @@ import functools
 
 import torch
 
-from .backends import register_fused_op
+from ._fused import register_fused_op
 
 _HEADER = """
 #include <metal_stdlib>

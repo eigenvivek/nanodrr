@@ -4,7 +4,7 @@ import pytest
 import torch
 from test_fused import fused_setup, make_camera, make_random_subject
 
-from nanodrr.drr.backends import pick_fused_backend
+from nanodrr.drr._fused import pick_fused_backend
 from nanodrr.drr.renderer import render
 
 
@@ -75,17 +75,17 @@ def test_auto_falls_back_to_torch_for_deterministic_volume_gradients(fused):
 
 
 def test_auto_falls_back_to_torch_when_inputs_exceed_limits(fused, monkeypatch):
-    monkeypatch.setattr("nanodrr.drr.backends.fused_supported", lambda *args: False)
+    monkeypatch.setattr("nanodrr.drr._fused.fused_supported", lambda *args: False)
     _auto_matches_torch(fused)
 
 
 def test_auto_falls_back_to_torch_when_the_backend_is_unavailable(fused, monkeypatch):
-    monkeypatch.setattr("nanodrr.drr.backends.available", lambda *args: False)
+    monkeypatch.setattr("nanodrr.drr._fused.available", lambda *args: False)
     _auto_matches_torch(fused)
 
 
 def test_explicit_backend_rejects_oversized_inputs(fused, monkeypatch):
-    monkeypatch.setattr("nanodrr.drr.backends.fused_supported", lambda *args: False)
+    monkeypatch.setattr("nanodrr.drr._fused.fused_supported", lambda *args: False)
     subject, k_inv, rt_inv, sdd, h, w = fused_setup(fused)
 
     with pytest.raises(ValueError, match="limits"):

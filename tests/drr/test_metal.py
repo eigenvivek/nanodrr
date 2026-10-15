@@ -11,7 +11,7 @@ from test_fused import make_camera, make_random_subject
 
 from nanodrr.camera import make_rt_inv
 from nanodrr.drr import _metal
-from nanodrr.drr.backends import pick_fused_backend
+from nanodrr.drr._fused import pick_fused_backend
 from nanodrr.drr.renderer import render
 
 pytestmark = pytest.mark.skipif(not torch.backends.mps.is_available(), reason="requires MPS")
