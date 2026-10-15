@@ -2,8 +2,8 @@ import torch
 from jaxtyping import Float
 
 from ..data import Subject
-from ._torch import render_torch
 from ._fused import FUSED_BACKENDS, pick_fused_backend, render_fused
+from ._torch import render_torch
 
 
 def render(

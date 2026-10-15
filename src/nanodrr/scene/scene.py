@@ -9,7 +9,6 @@ from ..drr import render
 from .camera import make_cameras
 from .surface import subject_to_mesh
 
-
 CullingMode = Literal["front", "back", "frontface", "backface", "f", "b"]
 
 
